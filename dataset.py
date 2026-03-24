@@ -40,6 +40,8 @@ class SourGrapeDataset(Dataset):
         df = df[df["condition"] == condition]
         if df.empty:
             raise ValueError(f"No rows found for condition '{condition}'.")
+        # Store item types for lookup.
+        self.item_types = df["item_type"].tolist()
         base_dir = Path(data_path).resolve().parent  # Resolve relative trajectory paths.
         sequences = []
         for rel_path in df["jitter_filename"].tolist():
@@ -94,6 +96,10 @@ class SourGrapeDataset(Dataset):
             "x": self.x[idx],
             "y": self.y[idx],
         }
+
+    def get_item_type(self, idx: int) -> str:
+        # Return the item_type string for a given index.
+        return str(self.item_types[idx])
 
     def save_vocab(self, path: str) -> None:
         # Save vocab for reproducible inference.

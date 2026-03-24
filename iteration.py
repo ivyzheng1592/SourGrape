@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader, random_split
 from dataset import SourGrapeDataset
 from hyper_params import HyperParams
 from model import LSTMRegressor, Seq2SeqRegressor
+from train_eval import eval_one_epoch, train_one_epoch
+from util import save_loss_plot, save_prediction_plot
 def iterate_once() -> None:
     # Training configuration.
     hp = HyperParams()
@@ -46,7 +48,7 @@ def iterate_once() -> None:
 
     # Optimization setup.
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.MSELoss(reduction="sum")
 
     # Optionally resume from a checkpoint.
     if hp.resume_path:
@@ -75,18 +77,23 @@ def iterate_once() -> None:
     history["test_loss"].append(test_loss)
     print(f"test_loss={test_loss:.6f}")
 
-    # Save a prediction plot for a single test sample.
+    # Save a prediction plot for one sample of each item type.
     if len(test_ds) > 0:
-        sample_idx = 0
-        sample = test_ds[sample_idx]
-        x = sample["x"].unsqueeze(0).to(device)
-        y = sample["y"].to(device)
+        seen_types = set()
         model.eval()
         with torch.no_grad():
-            pred = model(x).squeeze(0).cpu().tolist()
-        word = "".join(dataset.id_to_char[i] for i in sample["x"].tolist())
-        pred_path = out_dir / "prediction_vs_target.png"
-        save_prediction_plot(word, y.cpu().tolist(), pred, str(pred_path))
+            for i in range(len(test_ds)):
+                sample = test_ds[i]
+                item_type = dataset.get_item_type(i)
+                if item_type in seen_types:
+                    continue
+                x = sample["x"].unsqueeze(0).to(device)
+                y = sample["y"].to(device)
+                pred = model(x).squeeze(0).cpu().tolist()
+                word = "".join(dataset.id_to_char[j] for j in sample["x"].tolist())
+                pred_path = out_dir / f"prediction_vs_target_{item_type}.png"
+                save_prediction_plot(word, y.cpu().tolist(), pred, str(pred_path))
+                seen_types.add(item_type)
 
     # Save a single loss plot for this run.
     plot_path = out_dir / "loss_curve.png"
