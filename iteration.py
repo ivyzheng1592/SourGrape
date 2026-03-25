@@ -23,6 +23,7 @@ def iterate_once(
     generation: int,
     seed: int,
     dataset: SourGrapeDataset,
+    condition: str,
     model_type: str,
     device: torch.device,
     resume_path: str = "",
@@ -69,7 +70,7 @@ def iterate_once(
         model.load_state_dict(checkpoint)
 
     # Output directory for artifacts.
-    out_dir = Path("output") / f"gen_{generation}"
+    out_dir = Path("output") / condition / f"gen_{generation}"
     model_dir = out_dir / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -140,15 +141,16 @@ def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> 
             generation=gen,
             seed=base_seed + gen,
             dataset=dataset,
+            condition=condition,
             model_type=model_type,
             device=device,
         )
-        pred_path = Path("output") / f"gen_{gen}" / "predictions.npy"
+        pred_path = Path("output") / condition / f"gen_{gen}" / "predictions.npy"
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
     # Save mean trajectory drift plots across generations.
-    output_dir = str(Path("output") / "drift_plots")
+    output_dir = str(Path("output") / condition / "drift_plots")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     save_mean_trajectory_drift(preds_by_gen, dataset.item_types, output_dir)
 
