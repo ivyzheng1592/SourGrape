@@ -85,3 +85,40 @@ def save_mean_trajectory_drift(
         plt.tight_layout()
         plt.savefig(f"{output_dir}/mean_trajectory_{item_type}.png")
         plt.close()
+
+
+def save_item_type_error_curves(
+    preds: np.ndarray,
+    targets: np.ndarray,
+    item_types: Sequence[str],
+    output_dir: str,
+    suffix: str = "",
+) -> None:
+    # Save per-item-type MSE bar chart for a single generation.
+    item_types = list(item_types)
+    unique_types = sorted(set(item_types))
+    mse_by_type = {}
+    for item_type in unique_types:
+        idxs = [i for i, t in enumerate(item_types) if t == item_type]
+        if not idxs:
+            continue
+        diff = preds[idxs] - targets[idxs]
+        mse = float(np.mean(diff * diff))
+        mse_by_type[item_type] = mse
+
+    if not mse_by_type:
+        return
+
+    labels = list(mse_by_type.keys())
+    values = [mse_by_type[k] for k in labels]
+    plt.figure(figsize=(6, 3))
+    plt.bar(labels, values)
+    plt.title("Per-Item-Type MSE")
+    plt.xlabel("Item type")
+    plt.ylabel("MSE")
+    plt.tight_layout()
+    name = "item_type_mse"
+    if suffix:
+        name = f"{name}_{suffix}"
+    plt.savefig(f"{output_dir}/{name}.png")
+    plt.close()

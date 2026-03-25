@@ -10,7 +10,12 @@ from hyper_params import HyperParams
 from dataset import SourGrapeDataset
 from model import LSTMRegressor, Seq2SeqRegressor
 from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
-from util import save_loss_plot, save_prediction_plot, save_mean_trajectory_drift
+from util import (
+    save_loss_plot,
+    save_prediction_plot,
+    save_mean_trajectory_drift,
+    save_item_type_error_curves,
+)
 
 
 def iterate_once(
@@ -101,7 +106,7 @@ def iterate_once(
     # Save one prediction plot per item type.
     seen_types = set()
     for idx in range(len(dataset)):
-        item_type = dataset.get_item_type(idx)
+        item_type = dataset[idx]["item_type"]
         if item_type in seen_types:
             continue
         word = "".join(dataset.id_to_char[i] for i in dataset[idx]["x"].tolist())
@@ -146,6 +151,16 @@ def iterate_multi(num_generations: int = 2, base_seed: int = 42) -> None:
     output_dir = str(Path("output") / "drift_plots")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     save_mean_trajectory_drift(preds_by_gen, dataset.item_types, output_dir)
+
+    # Save per-item-type MSE for each generation (preds vs real).
+    for gen, preds in preds_by_gen.items():
+        save_item_type_error_curves(
+            preds=preds,
+            targets=dataset.y_real.numpy(),
+            item_types=dataset.item_types,
+            output_dir=output_dir,
+            suffix=f"gen_{gen}",
+        )
 
 
 if __name__ == "__main__":
