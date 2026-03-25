@@ -4,7 +4,6 @@ from dataclasses import dataclass
 @dataclass
 class HyperParams:
     # Training configuration.
-    condition: str = "glide"
     batch_size: int = 16
     epochs: int = 50
     lr: float = 1e-4

@@ -127,10 +127,10 @@ def iterate_once(
     np.save(out_dir / "predictions.npy", preds.numpy())
 
 
-def iterate_multi(num_generations: int = 2, base_seed: int = 42) -> None:
+def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> None:
     # Train multiple generations with different random seeds.
     hp = HyperParams()
-    dataset = SourGrapeDataset(condition=hp.condition)
+    dataset = SourGrapeDataset(condition=condition)
     model_type = hp.model_type
     device = torch.device(hp.device)
     preds_by_gen = {}
@@ -164,4 +164,5 @@ def iterate_multi(num_generations: int = 2, base_seed: int = 42) -> None:
 
 
 if __name__ == "__main__":
-    iterate_multi()
+    iterate_multi(num_generations=5, condition="glide")
+    iterate_multi(num_generations=5, condition="fricative")
