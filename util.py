@@ -60,45 +60,76 @@ def save_prediction_plot(
     plt.close()
 
 
-def save_item_trajectory_drift(
+def save_mean_trajectory_drift(
     preds_by_gen: Mapping[int, np.ndarray],
-    item_types: Sequence[str],
-    words: Sequence[str],
-    targets: np.ndarray,
-    output_dir: str,
-    per_type: int = 5,
+    output_path: str,
 ) -> None:
-    # Save individual trajectory drift plots for selected items.
+    # Save one mean trajectory drift plot for a single item type.
     if not preds_by_gen:
         return
-    item_types = list(item_types)
-    words = list(words)
-    unique_types = sorted(set(item_types))
     gens = sorted(preds_by_gen.keys())
     colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
 
-    # Collect first N items for each type.
-    items = []
-    for item_type in unique_types:
-        idxs = [i for i, t in enumerate(item_types) if t == item_type][:per_type]
-        for idx in idxs:
-            items.append((item_type, words[idx], idx))
+    plt.figure(figsize=(6, 3))
+    # Use "target" key if provided.
+    if "target" in preds_by_gen:
+        plt.plot(preds_by_gen["target"], color="black", linewidth=1.2, label="target")
+    for color, gen in zip(colors, gens):
+        if gen == "target":
+            continue
+        mean_traj = preds_by_gen[gen]
+        plt.plot(mean_traj, color=color, linewidth=1.0, label=f"gen_{gen}")
+    plt.xlabel("Time index")
+    plt.ylabel("Trajectory value")
+    plt.ylim(-0.10, 0.25)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
-    if not items:
+
+def save_loss_drift(
+    history_by_gen: Mapping[int, dict],
+    output_path: str,
+) -> None:
+    # Save training/test loss curves across generations in two subplots.
+    if not history_by_gen:
         return
-    for item_type, word, idx in items:
-        plt.figure(figsize=(6, 3))
-        plt.plot(targets[idx], color="black", linewidth=1.2, label="target")
-        for color, gen in zip(colors, gens):
-            preds = preds_by_gen[gen]
-            plt.plot(preds[idx], color=color, linewidth=1.0, label=f"gen_{gen}")
-        plt.title(f"{item_type}: {word}")
-        plt.xlabel("Time index")
-        plt.ylabel("Trajectory value")
-        plt.ylim(-0.10, 0.25)
-        plt.legend()
-        plt.tight_layout()
-        safe_word = "".join(ch for ch in word if ch.isalnum() or ch in "_-")
-        filename = f"drift_{item_type}_{safe_word}.png"
-        plt.savefig(f"{output_dir}/{filename}")
-        plt.close()
+    gens = sorted(history_by_gen.keys())
+    colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
+
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 3), sharex=False, sharey=False)
+    ax_train, ax_test = axes
+
+    for color, gen in zip(colors, gens):
+        hist = history_by_gen[gen]
+        train_loss = hist.get("train_loss", [])
+        test_loss = hist.get("test_loss", [])
+        if train_loss:
+            ax_train.plot(
+                range(1, len(train_loss) + 1),
+                train_loss,
+                color=color,
+                linewidth=1.2,
+                label=f"gen_{gen}",
+            )
+        if test_loss:
+            ax_test.plot(
+                range(1, len(test_loss) + 1),
+                test_loss,
+                color=color,
+                linewidth=1.2,
+                label=f"gen_{gen}",
+            )
+
+    ax_train.set_title("Train Loss by Generation")
+    ax_train.set_xlabel("Epoch")
+    ax_train.set_ylabel("Loss")
+    ax_test.set_title("Test Loss by Generation")
+    ax_test.set_xlabel("Epoch")
+    ax_test.set_ylabel("Loss")
+    ax_train.legend()
+    ax_test.legend()
+    fig.tight_layout()
+    fig.savefig(output_path)
+    plt.close(fig)

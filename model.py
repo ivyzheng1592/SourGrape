@@ -7,8 +7,8 @@ class LSTMRegressor(nn.Module):
         self,
         input_size: int,
         output_size: int,
-        embed_size: int = 16,
-        hidden_size: int = 64,
+        embed_size: int = 8,
+        hidden_size: int = 32,
         num_layers: int = 1,
         dropout: float = 0.5,
     ) -> None:
@@ -46,8 +46,8 @@ class Seq2SeqRegressor(nn.Module):
         self,
         input_size: int,
         output_len: int,
-        embed_size: int = 16,
-        hidden_size: int = 64,
+        embed_size: int = 8,
+        hidden_size: int = 32,
         num_layers: int = 1,
         dropout: float = 0.5,
     ) -> None:

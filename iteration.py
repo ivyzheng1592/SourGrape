@@ -13,16 +13,17 @@ from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
 from util import (
     save_loss_plot,
     save_prediction_plot,
-    save_item_trajectory_drift,
+    save_mean_trajectory_drift,
+    save_loss_drift,
 )
 
 
 def iterate_once(
     hp: HyperParams,
+    condition: str,
     generation: int,
     seed: int,
     dataset: SourGrapeDataset,
-    condition: str,
     model_type: str,
     device: torch.device,
     resume_path: str = "",
@@ -79,11 +80,14 @@ def iterate_once(
         "train_loss": [],
         "test_loss": [],
     }
+    history_rows = []
     for epoch in range(1, hp.epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, device, loss_fn)
         test_loss = eval_one_epoch(model, test_loader, device, loss_fn)
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
+        history_rows.append((epoch, "train", train_loss))
+        history_rows.append((epoch, "test", test_loss))
         print(f"epoch={epoch}, train_loss={train_loss:.6f}, test_loss={test_loss:.6f}")
         # Save a checkpoint every 5 epochs.
         if epoch % 5 == 0:
@@ -97,6 +101,7 @@ def iterate_once(
     # Final evaluation and prediction capture for next generation.
     final_loss, preds = eval_last_epoch(model, test_loader, device, loss_fn)
     history["final_test_loss"] = final_loss
+    history_rows.append((hp.epochs, "final_test", final_loss))
     print(f"final_test_loss={final_loss:.6f}")
     prev_before = dataset.y_prev.mean().item()
     dataset.update_prev_targets(preds)
@@ -122,12 +127,15 @@ def iterate_once(
     torch.save(model.state_dict(), model_dir / "model.pt")
     with open(out_dir / "vocab.json", "w", encoding="utf-8") as f:
         json.dump(dataset.vocab, f, ensure_ascii=True, indent=2)
-    with open(out_dir / "history.json", "w", encoding="utf-8") as f:
-        json.dump(history, f, ensure_ascii=True, indent=2)
+    history_path = out_dir / "history.csv"
+    with open(history_path, "w", encoding="utf-8") as f:
+        f.write("epoch,subset,loss\n")
+        for epoch, subset, loss in history_rows:
+            f.write(f"{epoch},{subset},{loss}\n")
     np.save(out_dir / "predictions.npy", preds.numpy())
 
 
-def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> None:
+def iterate_multi(condition: str, num_generations: int) -> None:
     # Train multiple generations with different random seeds.
     hp = HyperParams()
     dataset = SourGrapeDataset(condition=condition)
@@ -137,10 +145,10 @@ def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> 
     for gen in range(0, num_generations):
         iterate_once(
             hp=hp,
-            generation=gen,
-            seed=base_seed + gen,
-            dataset=dataset,
             condition=condition,
+            generation=gen,
+            seed=hp.seed + gen,
+            dataset=dataset,
             model_type=model_type,
             device=device,
         )
@@ -148,18 +156,43 @@ def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> 
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
-    # Save item-level trajectory drift plots across generations.
-    words = ["".join(dataset.id_to_char[i] for i in x.tolist()) for x in dataset.x]
+    # Save mean trajectory drift plots across generations.
     drift_dir = Path("output") / condition / "drift_plots"
     drift_dir.mkdir(parents=True, exist_ok=True)
-    save_item_trajectory_drift(
-        preds_by_gen,
-        dataset.item_types,
-        words,
-        dataset.y_real.numpy(),
-        str(drift_dir),
-        per_type=5,
-    )
+    item_types = list(dataset.item_types)
+    unique_types = sorted(set(item_types))
+    targets = dataset.y_real.numpy()
+    for item_type in unique_types:
+        idxs = [i for i, t in enumerate(item_types) if t == item_type]
+        if not idxs:
+            continue
+        mean_by_gen = {}
+        for gen, preds in preds_by_gen.items():
+            mean_by_gen[gen] = preds[idxs].mean(axis=0)
+        mean_by_gen["target"] = targets[idxs].mean(axis=0)
+        out_path = drift_dir / f"mean_drift_{item_type}.png"
+        save_mean_trajectory_drift(mean_by_gen, str(out_path))
+
+    # Save loss drift plot across generations.
+    history_by_gen = {}
+    for gen in range(0, num_generations):
+        history_path = Path("output") / condition / f"gen_{gen}" / "history.csv"
+        if not history_path.exists():
+            continue
+        train_loss = []
+        test_loss = []
+        with open(history_path, "r", encoding="utf-8") as f:
+            next(f, None)
+            for line in f:
+                epoch_str, subset, loss_str = line.strip().split(",")
+                if subset == "train":
+                    train_loss.append(float(loss_str))
+                elif subset == "test":
+                    test_loss.append(float(loss_str))
+        history_by_gen[gen] = {"train_loss": train_loss, "test_loss": test_loss}
+
+    loss_drift_path = drift_dir / "loss_drift.png"
+    save_loss_drift(history_by_gen, str(loss_drift_path))
 
 
 if __name__ == "__main__":

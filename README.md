@@ -81,7 +81,7 @@ The training run writes:
 - `output/gen_<n>/models/`: checkpoints and final model for generation `n`
 - `output/gen_<n>/predictions.npy`: predictions for generation `n`
 - `output/gen_<n>/vocab.json`: character vocabulary
-- `output/gen_<n>/history.json`: training/test losses and final test loss
+- `output/gen_<n>/history.csv`: training/test losses and final test loss
 - `output/gen_<n>/loss_curve.png`: loss curve plot
 - `output/gen_<n>/prediction_vs_target_<item_type>.png`: one plot per item type
 
