@@ -1,20 +1,7 @@
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from torch import nn
-
-
-def _step_batch(
-    model: nn.Module,
-    batch: Dict[str, torch.Tensor],
-    device: torch.device,
-    loss_fn: nn.Module,
-) -> torch.Tensor:
-    # Move batch to device and compute loss.
-    x = batch["x"].to(device)
-    targets = batch["y"].to(device)
-    preds = model(x)
-    return loss_fn(preds, targets)
 
 
 def train_one_epoch(
@@ -28,19 +15,21 @@ def train_one_epoch(
     model.train()
 
     total_loss = 0.0
-    n_batches = 0
 
     for batch in dataloader:
         # Standard training step.
         optimizer.zero_grad(set_to_none=True)
-        loss = _step_batch(model, batch, device, loss_fn)
+        # Move batch to device and compute loss.
+        x = batch["x"].to(device)
+        targets = batch["y_prev"].to(device)
+        preds = model(x)
+        loss = loss_fn(preds, targets)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
-        n_batches += 1
 
-    return total_loss / max(n_batches, 1)
+    return total_loss / max(len(dataloader), 1)
 
 
 @torch.no_grad()
@@ -54,16 +43,39 @@ def eval_one_epoch(
     model.eval()
 
     total_loss = 0.0
-    n_batches = 0
 
     for batch in dataloader:
         # Forward-only evaluation.
         x = batch["x"].to(device)
-        targets = batch["y"].to(device)
+        targets = batch["y_real"].to(device)
 
         preds = model(x)
         loss = loss_fn(preds, targets)
         total_loss += loss.item()
-        n_batches += 1
 
-    return total_loss / max(n_batches, 1)
+    return total_loss / max(len(dataloader), 1)
+
+
+@torch.no_grad()
+def eval_last_epoch(
+    model: nn.Module,
+    dataloader,
+    device: torch.device,
+    loss_fn: nn.Module,
+) -> Tuple[float, torch.Tensor]:
+    # Evaluate on the full test set and record predictions.
+    model.eval()
+
+    total_loss = 0.0
+    preds_all = []
+
+    for batch in dataloader:
+        x = batch["x"].to(device)
+        y = batch["y_real"].to(device)
+        preds = model(x)
+        loss = loss_fn(preds, y)
+        total_loss += loss.item()
+        preds_all.append(preds.cpu())
+
+    pred_matrix = torch.cat(preds_all, dim=0)
+    return total_loss / max(len(dataloader), 1), pred_matrix

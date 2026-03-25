@@ -6,7 +6,7 @@ from typing import Dict, Iterable
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, random_split
 
 
 PAD_TOKEN = "<pad>"  # Reserved id 0 for padding.
@@ -22,11 +22,6 @@ def _build_vocab(words: Iterable[str]) -> Dict[str, int]:
     return vocab
 
 
-def _load_npy(path: str) -> np.ndarray:
-    # Load a numpy array from disk.
-    return np.load(path)
-
-
 class SourGrapeDataset(Dataset):
     def __init__(
         self,
@@ -40,13 +35,16 @@ class SourGrapeDataset(Dataset):
         df = df[df["condition"] == condition]
         if df.empty:
             raise ValueError(f"No rows found for condition '{condition}'.")
+        
         # Store item types for lookup.
         self.item_types = df["item_type"].tolist()
+        
+        # Look for trajectory paths
         base_dir = Path(data_path).resolve().parent  # Resolve relative trajectory paths.
         sequences = []
         for rel_path in df["jitter_filename"].tolist():
             npy_path = base_dir / str(rel_path)
-            arr = _load_npy(str(npy_path))
+            arr = np.load(str(npy_path))
             flat = np.asarray(arr).reshape(-1)
             if flat.shape[0] != expected_trajectory_len:
                 # Warn and fail fast if the trajectory length is incorrect.
@@ -84,7 +82,9 @@ class SourGrapeDataset(Dataset):
 
         # Final tensors ready for DataLoader batching (assumes fixed word length).
         self.x = torch.tensor(encoded, dtype=torch.long)
-        self.y = torch.tensor(traj_matrix, dtype=torch.float32)
+        # Store real targets and initialize previous-generation targets to real ones.
+        self.y_real = torch.tensor(traj_matrix, dtype=torch.float32)
+        self.y_prev = self.y_real.clone()
 
     def __len__(self) -> int:
         # Number of samples.
@@ -94,14 +94,27 @@ class SourGrapeDataset(Dataset):
         # Single training example.
         return {
             "x": self.x[idx],
-            "y": self.y[idx],
+            "y": self.y_prev[idx],
+            "y_real": self.y_real[idx],
+            "y_prev": self.y_prev[idx],
+            "item_type": self.item_types[idx],
         }
-
-    def get_item_type(self, idx: int) -> str:
-        # Return the item_type string for a given index.
-        return str(self.item_types[idx])
 
     def save_vocab(self, path: str) -> None:
         # Save vocab for reproducible inference.
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.vocab, f, ensure_ascii=True, indent=2)
+
+    def update_prev_targets(self, y_prev: torch.Tensor) -> None:
+        # Update previous-generation targets using a full prediction matrix.
+        if y_prev.shape != self.y_real.shape:
+            raise ValueError("y_prev must have the same shape as y_real.")
+        self.y_prev = y_prev.detach().cpu()
+
+    def split_dataset(self, seed: int = 42) -> tuple[Dataset, Dataset, Dataset]:
+        # Split this dataset into three roughly even portions.
+        return random_split(
+            self,
+            [1 / 3, 1 / 3, 1 / 3],
+            generator=torch.Generator().manual_seed(seed),
+        )

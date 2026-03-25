@@ -1,6 +1,6 @@
 # LSTM Velum Trajectory Mapping
 
-This project trains a character-level LSTM to map each input word to a fixed-length articulatory trajectory (e.g., velum opening over time).
+This project trains character-level models to map each input word to a fixed-length articulatory trajectory (e.g., velum opening over time), including multi-generation training.
 
 ## Data format (Metadata CSV)
 
@@ -10,15 +10,16 @@ Required columns:
 
 - `UR`: the input word (must be exactly 5 letters).
 - `jitter_filename`: relative path to a `.npy` file containing the output trajectory.
+- `condition`: condition label used to filter rows.
+- `item_type`: item type label used for plotting summaries.
 
 Each `.npy` file must contain **122 numbers** (the output trajectory). If a word is not
-exactly 5 letters or a `.npy` file is not length 122, the loader prints a warning and
-pads/truncates to length 122 for training stability.
+exactly 5 letters or a `.npy` file is not length 122, the loader warns and raises an error.
 
 Example header:
 
 ```
-UR,jitter_filename
+UR,jitter_filename,condition,item_type
 ```
 
 ## Quick start
@@ -45,15 +46,17 @@ loader = DataLoader(dataset, batch_size=4, shuffle=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 batch = next(iter(loader))
-x, y = batch["x"].to(device), batch["y"].to(device)
+x = batch["x"].to(device)
+y_prev = batch["y_prev"].to(device)
+y_real = batch["y_real"].to(device)
 
 model = LSTMRegressor(
     input_size=len(dataset.vocab),
     output_size=dataset.trajectory_len,
 ).to(device)
 pred = model(x)
-loss = nn.MSELoss()(pred, y)
-print(pred.shape, y.shape, loss.item())
+loss = nn.MSELoss()(pred, y_prev)
+print(pred.shape, y_prev.shape, loss.item())
 
 # Alternate model: simple seq2seq encoder-decoder
 seq2seq = Seq2SeqRegressor(
@@ -61,25 +64,29 @@ seq2seq = Seq2SeqRegressor(
     output_len=dataset.trajectory_len,
 ).to(device)
 seq_pred = seq2seq(x)
-seq_loss = nn.MSELoss()(seq_pred, y)
-print(seq_pred.shape, y.shape, seq_loss.item())
+seq_loss = nn.MSELoss()(seq_pred, y_prev)
+print(seq_pred.shape, y_prev.shape, seq_loss.item())
 ```
 
-3. Train:
+3. Train multi-generation:
 
 ```
-python train.py --data_path dataset/jitter_meta_file.csv --output_dir artifacts
+python iteration.py
 ```
 
 ## Outputs
 
 The training run writes:
 
-- `artifacts/model.pt`: model state dict
-- `artifacts/vocab.json`: character vocabulary
-- `artifacts/metrics.json`: final metrics and config
+- `output/gen_<n>/models/`: checkpoints and final model for generation `n`
+- `output/gen_<n>/predictions.npy`: predictions for generation `n`
+- `output/gen_<n>/vocab.json`: character vocabulary
+- `output/gen_<n>/history.json`: training/test losses and final test loss
+- `output/gen_<n>/loss_curve.png`: loss curve plot
+- `output/gen_<n>/prediction_vs_target_<item_type>.png`: one plot per item type
 
 ## Notes
 
-- This baseline maps each word to a fixed-length trajectory. If your trajectories are variable length, we can upgrade the model to a sequence-to-sequence setup.
+- Training uses `y_prev` targets, which are updated each generation with the previous model's predictions.
+- Evaluation uses `y_real` targets from the metadata `.npy` files.
 - The pipeline assumes a CSV metadata file and `.npy` trajectories.

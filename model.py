@@ -10,7 +10,7 @@ class LSTMRegressor(nn.Module):
         embed_size: int = 16,
         hidden_size: int = 64,
         num_layers: int = 1,
-        dropout: float = 0.0,
+        dropout: float = 0.5,
     ) -> None:
         super().__init__()
         # Character embeddings; padding index 0 matches PAD_TOKEN.
@@ -49,7 +49,7 @@ class Seq2SeqRegressor(nn.Module):
         embed_size: int = 16,
         hidden_size: int = 64,
         num_layers: int = 1,
-        dropout: float = 0.0,
+        dropout: float = 0.5,
     ) -> None:
         super().__init__()
         # Encoder maps characters to a hidden state.
