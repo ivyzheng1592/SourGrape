@@ -60,47 +60,45 @@ def save_prediction_plot(
     plt.close()
 
 
-def save_mean_trajectory_drift(
+def save_item_trajectory_drift(
     preds_by_gen: Mapping[int, np.ndarray],
     item_types: Sequence[str],
-    output_path: str,
+    words: Sequence[str],
     targets: np.ndarray,
+    output_dir: str,
+    per_type: int = 5,
 ) -> None:
-    # Save a grid of mean trajectory drift plots across item types.
+    # Save individual trajectory drift plots for selected items.
     if not preds_by_gen:
         return
     item_types = list(item_types)
+    words = list(words)
     unique_types = sorted(set(item_types))
-    n_types = len(unique_types)
-    ncols = 3
-    nrows = (n_types + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 6), sharex=True, sharey=True)
-    axes = np.array(axes).reshape(-1)
     gens = sorted(preds_by_gen.keys())
     colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
 
-    for ax_idx, item_type in enumerate(unique_types):
-        ax = axes[ax_idx]
-        idxs = [i for i, t in enumerate(item_types) if t == item_type]
-        if not idxs:
-            continue
-        # Plot target mean.
-        target_mean = targets[idxs].mean(axis=0)
-        ax.plot(target_mean, color="black", linewidth=1.5, label="target")
-        # Plot generation means with continuous color scale.
+    # Collect first N items for each type.
+    items = []
+    for item_type in unique_types:
+        idxs = [i for i, t in enumerate(item_types) if t == item_type][:per_type]
+        for idx in idxs:
+            items.append((item_type, words[idx], idx))
+
+    if not items:
+        return
+    for item_type, word, idx in items:
+        plt.figure(figsize=(6, 3))
+        plt.plot(targets[idx], color="black", linewidth=1.2, label="target")
         for color, gen in zip(colors, gens):
             preds = preds_by_gen[gen]
-            mean_traj = preds[idxs].mean(axis=0)
-            ax.plot(mean_traj, color=color, linewidth=1.2, label=f"gen_{gen}")
-        ax.set_title(item_type)
-
-    # Hide any extra axes.
-    for ax in axes[n_types:]:
-        ax.axis("off")
-
-    fig.suptitle("Mean Trajectory Drift by Item Type")
-    fig.supxlabel("Time index")
-    fig.supylabel("Trajectory value")
-    fig.tight_layout()
-    fig.savefig(output_path)
-    plt.close(fig)
+            plt.plot(preds[idx], color=color, linewidth=1.0, label=f"gen_{gen}")
+        plt.title(f"{item_type}: {word}")
+        plt.xlabel("Time index")
+        plt.ylabel("Trajectory value")
+        plt.ylim(-0.10, 0.25)
+        plt.legend()
+        plt.tight_layout()
+        safe_word = "".join(ch for ch in word if ch.isalnum() or ch in "_-")
+        filename = f"drift_{item_type}_{safe_word}.png"
+        plt.savefig(f"{output_dir}/{filename}")
+        plt.close()

@@ -13,7 +13,7 @@ from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
 from util import (
     save_loss_plot,
     save_prediction_plot,
-    save_mean_trajectory_drift,
+    save_item_trajectory_drift,
 )
 
 
@@ -148,9 +148,18 @@ def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> 
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
-    # Save mean trajectory drift grid across generations.
-    output_path = str(Path("output") / condition / "mean_trajectory_drift.png")
-    save_mean_trajectory_drift(preds_by_gen, dataset.item_types, output_path, dataset.y_real.numpy())
+    # Save item-level trajectory drift plots across generations.
+    words = ["".join(dataset.id_to_char[i] for i in x.tolist()) for x in dataset.x]
+    drift_dir = Path("output") / condition / "drift_plots"
+    drift_dir.mkdir(parents=True, exist_ok=True)
+    save_item_trajectory_drift(
+        preds_by_gen,
+        dataset.item_types,
+        words,
+        dataset.y_real.numpy(),
+        str(drift_dir),
+        per_type=5,
+    )
 
 
 if __name__ == "__main__":
