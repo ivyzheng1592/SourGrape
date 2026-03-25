@@ -67,7 +67,7 @@ def save_mean_trajectory_drift(
     # Save one mean trajectory drift plot for a single item type.
     if not preds_by_gen:
         return
-    gens = sorted(preds_by_gen.keys())
+    gens = sorted(k for k in preds_by_gen.keys() if k != "target")
     colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
 
     plt.figure(figsize=(6, 3))
@@ -75,8 +75,6 @@ def save_mean_trajectory_drift(
     if "target" in preds_by_gen:
         plt.plot(preds_by_gen["target"], color="black", linewidth=1.2, label="target")
     for color, gen in zip(colors, gens):
-        if gen == "target":
-            continue
         mean_traj = preds_by_gen[gen]
         plt.plot(mean_traj, color=color, linewidth=1.0, label=f"gen_{gen}")
     plt.xlabel("Time index")
