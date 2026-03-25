@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, random_split
 
+from hyper_params import HyperParams
+
 
 PAD_TOKEN = "<pad>"  # Reserved id 0 for padding.
 UNK_TOKEN = "<unk>"  # Reserved id 1 for unknown characters.
@@ -26,9 +28,9 @@ class SourGrapeDataset(Dataset):
     def __init__(
         self,
         condition: str,
-        data_path: str = "dataset/jitter_meta_file.csv",
-        expected_word_len: int = 5,
-        expected_trajectory_len: int = 122,
+        data_path: str = HyperParams().data_path,
+        expected_word_len: int = HyperParams().expected_word_len,
+        expected_trajectory_len: int = HyperParams().expected_trajectory_len,
     ) -> None:
         # Read metadata and filter to a single condition.
         df = pd.read_csv(data_path)

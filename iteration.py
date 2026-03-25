@@ -70,7 +70,7 @@ def iterate_once(
         model.load_state_dict(checkpoint)
 
     # Output directory for artifacts.
-    out_dir = Path("output") / condition / f"gen_{generation}"
+    out_dir = Path(hp.output_root) / condition / f"gen_{generation}"
     model_dir = out_dir / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -152,12 +152,12 @@ def iterate_multi(condition: str, num_generations: int) -> None:
             model_type=model_type,
             device=device,
         )
-        pred_path = Path("output") / condition / f"gen_{gen}" / "predictions.npy"
+        pred_path = Path(hp.output_root) / condition / f"gen_{gen}" / "predictions.npy"
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
     # Save mean trajectory drift plots across generations.
-    drift_dir = Path("output") / condition / "drift_plots"
+    drift_dir = Path(hp.output_root) / condition / "drift_plots"
     drift_dir.mkdir(parents=True, exist_ok=True)
     item_types = list(dataset.item_types)
     unique_types = sorted(set(item_types))

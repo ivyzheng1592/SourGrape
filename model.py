@@ -1,16 +1,18 @@
 import torch
 from torch import nn
 
+from hyper_params import HyperParams
+
 
 class LSTMRegressor(nn.Module):
     def __init__(
         self,
         input_size: int,
         output_size: int,
-        embed_size: int = 8,
-        hidden_size: int = 32,
-        num_layers: int = 1,
-        dropout: float = 0.5,
+        embed_size: int = HyperParams().embed_size,
+        hidden_size: int = HyperParams().hidden_size,
+        num_layers: int = HyperParams().num_layers,
+        dropout: float = HyperParams().dropout,
     ) -> None:
         super().__init__()
         # Character embeddings; padding index 0 matches PAD_TOKEN.
@@ -46,10 +48,10 @@ class Seq2SeqRegressor(nn.Module):
         self,
         input_size: int,
         output_len: int,
-        embed_size: int = 8,
-        hidden_size: int = 32,
-        num_layers: int = 1,
-        dropout: float = 0.5,
+        embed_size: int = HyperParams().embed_size,
+        hidden_size: int = HyperParams().hidden_size,
+        num_layers: int = HyperParams().num_layers,
+        dropout: float = HyperParams().dropout,
     ) -> None:
         super().__init__()
         # Encoder maps characters to a hidden state.
