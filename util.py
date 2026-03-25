@@ -53,6 +53,7 @@ def save_prediction_plot(
     plt.title(f"{title_prefix}: {word}")
     plt.xlabel("Time index")
     plt.ylabel("Trajectory value")
+    plt.ylim(-0.10, 0.25)
     plt.legend()
     plt.tight_layout()
     plt.savefig(path)
@@ -62,63 +63,44 @@ def save_prediction_plot(
 def save_mean_trajectory_drift(
     preds_by_gen: Mapping[int, np.ndarray],
     item_types: Sequence[str],
-    output_dir: str,
+    output_path: str,
+    targets: np.ndarray,
 ) -> None:
-    # Save mean trajectory plots per item type across generations.
+    # Save a grid of mean trajectory drift plots across item types.
     if not preds_by_gen:
         return
     item_types = list(item_types)
     unique_types = sorted(set(item_types))
-    for item_type in unique_types:
+    n_types = len(unique_types)
+    ncols = 3
+    nrows = (n_types + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(10, 6), sharex=True, sharey=True)
+    axes = np.array(axes).reshape(-1)
+    gens = sorted(preds_by_gen.keys())
+    colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
+
+    for ax_idx, item_type in enumerate(unique_types):
+        ax = axes[ax_idx]
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
         if not idxs:
             continue
-        plt.figure(figsize=(6, 3))
-        for gen in sorted(preds_by_gen.keys()):
+        # Plot target mean.
+        target_mean = targets[idxs].mean(axis=0)
+        ax.plot(target_mean, color="black", linewidth=1.5, label="target")
+        # Plot generation means with continuous color scale.
+        for color, gen in zip(colors, gens):
             preds = preds_by_gen[gen]
             mean_traj = preds[idxs].mean(axis=0)
-            plt.plot(mean_traj, label=f"gen_{gen}", linewidth=1.5)
-        plt.title(f"Mean Trajectory Drift: {item_type}")
-        plt.xlabel("Time index")
-        plt.ylabel("Trajectory value")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f"{output_dir}/mean_trajectory_{item_type}.png")
-        plt.close()
+            ax.plot(mean_traj, color=color, linewidth=1.2, label=f"gen_{gen}")
+        ax.set_title(item_type)
 
+    # Hide any extra axes.
+    for ax in axes[n_types:]:
+        ax.axis("off")
 
-def save_item_type_error_curves(
-    preds: np.ndarray,
-    targets: np.ndarray,
-    item_types: Sequence[str],
-    output_dir: str,
-    suffix: str = "",
-) -> None:
-    # Save per-item-type MSE bar chart for a single generation.
-    item_types = list(item_types)
-    unique_types = sorted(set(item_types))
-    mse_by_type = {}
-    for item_type in unique_types:
-        idxs = [i for i, t in enumerate(item_types) if t == item_type]
-        if not idxs:
-            continue
-        diff = preds[idxs] - targets[idxs]
-        mse = float(np.mean(diff * diff))
-        mse_by_type[item_type] = mse
-
-    if not mse_by_type:
-        return
-
-    labels = list(mse_by_type.keys())
-    values = [mse_by_type[k] for k in labels]
-    plt.figure(figsize=(6, 3))
-    plt.bar(labels, values)
-    plt.title("Per-Item-Type MSE")
-    plt.xlabel("Item type")
-    plt.ylabel("MSE")
-    plt.tight_layout()
-    name = "item_type_mse"
-    if suffix:
-        name = f"{name}_{suffix}"
-    plt.savefig(f"{output_dir}/{name}.png")
-    plt.close()
+    fig.suptitle("Mean Trajectory Drift by Item Type")
+    fig.supxlabel("Time index")
+    fig.supylabel("Trajectory value")
+    fig.tight_layout()
+    fig.savefig(output_path)
+    plt.close(fig)

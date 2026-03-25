@@ -14,7 +14,6 @@ from util import (
     save_loss_plot,
     save_prediction_plot,
     save_mean_trajectory_drift,
-    save_item_type_error_curves,
 )
 
 
@@ -149,20 +148,9 @@ def iterate_multi(condition: str, num_generations: int, base_seed: int = 42) -> 
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
-    # Save mean trajectory drift plots across generations.
-    output_dir = str(Path("output") / condition / "drift_plots")
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    save_mean_trajectory_drift(preds_by_gen, dataset.item_types, output_dir)
-
-    # Save per-item-type MSE for each generation (preds vs real).
-    for gen, preds in preds_by_gen.items():
-        save_item_type_error_curves(
-            preds=preds,
-            targets=dataset.y_real.numpy(),
-            item_types=dataset.item_types,
-            output_dir=output_dir,
-            suffix=f"gen_{gen}",
-        )
+    # Save mean trajectory drift grid across generations.
+    output_path = str(Path("output") / condition / "mean_trajectory_drift.png")
+    save_mean_trajectory_drift(preds_by_gen, dataset.item_types, output_path, dataset.y_real.numpy())
 
 
 if __name__ == "__main__":
