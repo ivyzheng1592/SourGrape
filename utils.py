@@ -2,6 +2,7 @@ from typing import Iterable, Sequence, Mapping
 
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.decomposition import PCA
 
 
 def plot_word_trajectory(word: str, trajectory: Sequence[float], title_prefix: str = "Input") -> None:
@@ -131,3 +132,26 @@ def save_loss_drift(
     fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)
+
+
+def save_embedding_pca(
+    embedding_weights: np.ndarray,
+    id_to_char: Mapping[int, str],
+    output_path: str,
+) -> None:
+    # Save a 2D PCA plot of the embedding matrix with character labels.
+    if embedding_weights.ndim != 2 or embedding_weights.shape[0] == 0:
+        return
+    pca = PCA(n_components=2)
+    coords = pca.fit_transform(embedding_weights)
+    plt.figure(figsize=(5, 5))
+    plt.scatter(coords[:, 0], coords[:, 1], s=30)
+    for idx, (x, y) in enumerate(coords):
+        label = id_to_char.get(idx, str(idx))
+        plt.text(x, y, label, fontsize=9, ha="center", va="center")
+    plt.title("Embedding PCA")
+    plt.xlabel("PC1")
+    plt.ylabel("PC2")
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()

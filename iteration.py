@@ -10,11 +10,12 @@ from hyper_params import HyperParams
 from dataset import SourGrapeDataset
 from model import LSTMRegressor, Seq2SeqRegressor
 from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
-from util import (
+from utils import (
     save_loss_plot,
     save_prediction_plot,
     save_mean_trajectory_drift,
     save_loss_drift,
+    save_embedding_pca,
 )
 
 
@@ -122,6 +123,12 @@ def iterate_once(
         seen_types.add(item_type)
         if len(seen_types) >= 5:
             break
+
+    # Save PCA plot of embedding weights.
+    if hasattr(model, "embedding"):
+        emb = model.embedding.weight.detach().cpu().numpy()
+        pca_path = out_dir / "embedding_pca.png"
+        save_embedding_pca(emb, dataset.id_to_char, str(pca_path))
 
     # Save artifacts.
     torch.save(model.state_dict(), model_dir / "model.pt")
