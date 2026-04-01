@@ -3,13 +3,15 @@ from typing import Dict, Tuple
 import torch
 from torch import nn
 
+from typing import Callable
+
 
 def train_one_epoch(
     model: nn.Module,
     dataloader,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
-    loss_fn: nn.Module,
+    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
 ) -> float:
     # One full pass over the training set.
     model.train()
@@ -37,7 +39,7 @@ def eval_one_epoch(
     model: nn.Module,
     dataloader,
     device: torch.device,
-    loss_fn: nn.Module,
+    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
 ) -> float:
     # One full pass over the validation/test set.
     model.eval()
@@ -48,7 +50,6 @@ def eval_one_epoch(
         # Forward-only evaluation.
         x = batch["x"].to(device)
         targets = batch["y_real"].to(device)
-
         preds = model(x)
         loss = loss_fn(preds, targets)
         total_loss += loss.item()
@@ -61,7 +62,7 @@ def eval_last_epoch(
     model: nn.Module,
     dataloader,
     device: torch.device,
-    loss_fn: nn.Module,
+    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
 ) -> Tuple[float, torch.Tensor]:
     # Evaluate on the full test set and record predictions.
     model.eval()

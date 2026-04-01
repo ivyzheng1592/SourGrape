@@ -4,12 +4,12 @@ This project trains character-level models to map each input word to a fixed-len
 
 ## Data format (Metadata CSV)
 
-Provide a `jitter_meta_file.csv` with one row per word.
+Provide a `train_meta_file.csv` and `test_meta_file.csv` with one row per word.
 
 Required columns:
 
-- `UR`: the input word (must be exactly 5 letters).
-- `jitter_filename`: relative path to a `.npy` file containing the output trajectory.
+- `word`: the input word (must be exactly 5 letters).
+- `file_name`: relative path to a `.npy` file containing the output trajectory.
 - `condition`: condition label used to filter rows.
 - `item_type`: item type label used for plotting summaries.
 
@@ -19,7 +19,7 @@ exactly 5 letters or a `.npy` file is not length 122, the loader warns and raise
 Example header:
 
 ```
-UR,jitter_filename,condition,item_type
+word,file_name,condition,item_type
 ```
 
 ## Quick start
@@ -40,7 +40,7 @@ from torch.utils.data import DataLoader
 from dataset import SourGrapeDataset
 from model import LSTMRegressor, Seq2SeqRegressor
 
-dataset = SourGrapeDataset(condition="glide")
+dataset = SourGrapeDataset(condition="glide", data_path="dataset/train_meta_file.csv", augment=True)
 loader = DataLoader(dataset, batch_size=4, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,4 +89,4 @@ The training run writes:
 
 - Training uses `y_prev` targets, which are updated each generation with the previous model's predictions.
 - Evaluation uses `y_real` targets from the metadata `.npy` files.
-- The pipeline assumes a CSV metadata file and `.npy` trajectories.
+- The pipeline assumes `train_meta_file.csv`/`test_meta_file.csv` and `.npy` trajectories.

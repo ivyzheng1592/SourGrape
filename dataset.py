@@ -9,64 +9,58 @@ import torch
 from torch.utils.data import Dataset, random_split
 
 from hyper_params import HyperParams
+from preprocessing import augment_trajectory_variable_length
 
 
 PAD_TOKEN = "<pad>"  # Reserved id 0 for padding.
 UNK_TOKEN = "<unk>"  # Reserved id 1 for unknown characters.
 
 
-def _build_vocab(words: Iterable[str]) -> Dict[str, int]:
-    # Build a character-level vocab from all words.
-    chars = {ch for w in words if isinstance(w, str) for ch in w}
-    vocab = {PAD_TOKEN: 0, UNK_TOKEN: 1}
-    for ch in sorted(chars):
-        vocab.setdefault(ch, len(vocab))
-    return vocab
-
-
 class SourGrapeDataset(Dataset):
     def __init__(
         self,
         condition: str,
-        data_path: str = HyperParams().data_path,
+        data_path: str,
         expected_word_len: int = HyperParams().expected_word_len,
-        expected_trajectory_len: int = HyperParams().expected_trajectory_len,
+        trajectory_pad_value: float = HyperParams().trajectory_pad_value,
+        max_trajectory_len: int = HyperParams().max_trajectory_len,
+        augment: bool = False,
     ) -> None:
         # Read metadata and filter to a single condition.
         df = pd.read_csv(data_path)
         df = df[df["condition"] == condition]
-        if df.empty:
-            raise ValueError(f"No rows found for condition '{condition}'.")
         
         # Store item types for lookup.
         self.item_types = df["item_type"].tolist()
         
-        # Look for trajectory paths
+        # Load trajectory paths.
         base_dir = Path(data_path).resolve().parent  # Resolve relative trajectory paths.
         sequences = []
-        for rel_path in df["jitter_filename"].tolist():
+        for rel_path in df["file_name"].tolist():
             npy_path = base_dir / str(rel_path)
             arr = np.load(str(npy_path))
             flat = np.asarray(arr).reshape(-1)
-            if flat.shape[0] != expected_trajectory_len:
-                # Warn and fail fast if the trajectory length is incorrect.
-                warnings.warn(
-                    f"Expected {expected_trajectory_len} values in {npy_path}, "
-                    f"got {flat.shape[0]}.",
-                    stacklevel=2,
+            if augment:
+                aug = augment_trajectory_variable_length(
+                    torch.tensor(flat).unsqueeze(1)
                 )
+                flat = aug.squeeze(1).detach().cpu().numpy()
+            if flat.shape[0] > max_trajectory_len:
                 raise ValueError(
-                    f"All trajectories must be length {expected_trajectory_len}."
+                    f"Trajectory length {flat.shape[0]} exceeds max {max_trajectory_len}."
                 )
             sequences.append(flat.astype(np.float32))
-        traj_matrix = np.vstack(sequences)
-        self.trajectory_len = expected_trajectory_len
+        max_len = max(len(s) for s in sequences) if sequences else 0
+        padded = [
+            self._pad_trajectory(s, max_len, trajectory_pad_value) for s in sequences
+        ]
+        traj_matrix = np.vstack(padded) if padded else np.zeros((0, max_len), dtype=np.float32)
+        self.trajectory_len = max_len
 
         # Build character vocab and encode each word to ids.
-        words = df["UR"].tolist()
-        self.vocab = _build_vocab(words)
-        # Inverse vocab for decoding ids back to characters.
-        self.id_to_char = {idx: ch for ch, idx in self.vocab.items()}
+        words = df["word"].tolist()
+        self.words = words
+        self.vocab, self.id_to_char = self._build_vocab(words)
         unk_id = self.vocab[UNK_TOKEN]
         encoded = [
             [self.vocab.get(ch, unk_id) for ch in (w if isinstance(w, str) else "")]
@@ -74,12 +68,11 @@ class SourGrapeDataset(Dataset):
         ]
         bad = [w for w in words if not isinstance(w, str) or len(w) != expected_word_len]
         if bad:
-            # Warn and fail fast if any word length violates the requirement.
             warnings.warn(
-                f"Found {len(bad)} words not length {expected_word_len} in 'UR'.",
+                f"Found {len(bad)} words not length {expected_word_len} in 'word'.",
                 stacklevel=2,
             )
-            raise ValueError(f"All 'UR' words must be length {expected_word_len}.")
+            raise ValueError(f"All 'word' values must be length {expected_word_len}.")
         self.word_len = expected_word_len
 
         # Final tensors ready for DataLoader batching (assumes fixed word length).
@@ -100,7 +93,33 @@ class SourGrapeDataset(Dataset):
             "y_real": self.y_real[idx],
             "y_prev": self.y_prev[idx],
             "item_type": self.item_types[idx],
+            "word": self.words[idx],
         }
+
+    def _pad_trajectory(
+        self,
+        flat: np.ndarray,
+        pad_to_len: int,
+        trajectory_pad_value: float,
+    ) -> np.ndarray:
+        # Pad a single trajectory to the target length (no truncation).
+        if flat.shape[0] < pad_to_len:
+            pad = np.full(
+                pad_to_len - flat.shape[0],
+                trajectory_pad_value,
+                dtype=flat.dtype,
+            )
+            flat = np.concatenate([flat, pad], axis=0)
+        return flat
+
+    def _build_vocab(self, words: Iterable[str]) -> tuple[Dict[str, int], Dict[int, str]]:
+        # Build a character-level vocab from all words and its inverse map.
+        chars = {ch for w in words if isinstance(w, str) for ch in w}
+        vocab = {PAD_TOKEN: 0, UNK_TOKEN: 1}
+        for ch in sorted(chars):
+            vocab.setdefault(ch, len(vocab))
+        id_to_char = {idx: ch for ch, idx in vocab.items()}
+        return vocab, id_to_char
 
     def save_vocab(self, path: str) -> None:
         # Save vocab for reproducible inference.
