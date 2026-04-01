@@ -24,6 +24,7 @@ class SourGrapeDataset(Dataset):
         expected_word_len: int = HyperParams().expected_word_len,
         trajectory_pad_value: float = HyperParams().trajectory_pad_value,
         max_trajectory_len: int = HyperParams().max_trajectory_len,
+        npy_root: str = HyperParams().npy_root,
         augment: bool = False,
     ) -> None:
         # Read metadata and filter to a single condition.
@@ -34,7 +35,7 @@ class SourGrapeDataset(Dataset):
         self.item_types = df["item_type"].tolist()
         
         # Load trajectory paths.
-        base_dir = Path(data_path).resolve().parent  # Resolve relative trajectory paths.
+        base_dir = Path(npy_root).resolve()
         sequences = []
         for rel_path in df["file_name"].tolist():
             npy_path = base_dir / str(rel_path)

@@ -187,11 +187,13 @@ def iterate_multi(condition: str, num_generations: int) -> None:
     train_dataset = SourGrapeDataset(
         condition=condition,
         data_path=hp.train_data_path,
+        npy_root=hp.npy_root,
         augment=True,
     )
     test_dataset = SourGrapeDataset(
         condition=condition,
         data_path=hp.test_data_path,
+        npy_root=hp.npy_root,
         augment=False,
     )
     model_type = hp.model_type

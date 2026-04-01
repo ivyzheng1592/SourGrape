@@ -12,6 +12,7 @@ class HyperParams:
     device: str = "cuda"  # "cuda" or "cpu"
     train_data_path: str = "dataset/train_meta_file.csv"
     test_data_path: str = "dataset/test_meta_file.csv"
+    npy_root: str = "dataset"
     output_root: str = "output"
     embed_size: int = 4
     hidden_size: int = 8
