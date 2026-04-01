@@ -8,7 +8,7 @@ Provide a `train_meta_file.csv` and `test_meta_file.csv` with one row per word.
 
 Required columns:
 
-- `ur`: the input word (must be exactly 5 letters).
+- `UR`: the input word (must be exactly 5 letters).
 - `file_name`: relative path to a `.npy` file containing the output trajectory.
 - `condition`: condition label used to filter rows.
 - `item_type`: item type label used for plotting summaries.
@@ -19,7 +19,7 @@ exactly 5 letters or a `.npy` file is not length 122, the loader warns and raise
 Example header:
 
 ```
-ur,file_name,condition,item_type
+UR,file_name,condition,item_type
 ```
 
 ## Quick start
