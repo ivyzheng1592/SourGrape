@@ -17,6 +17,7 @@ from utils import (
     save_loss_drift,
     save_embedding_pca,
 )
+from datetime import datetime
 
 
 def build_model(dataset: SourGrapeDataset, model_type: str) -> nn.Module:
@@ -63,6 +64,7 @@ def iterate_once(
     test_dataset: SourGrapeDataset,
     model_type: str,
     device: torch.device,
+    output_root: Path,
     resume_path: str = "",
 ) -> None:
 
@@ -98,7 +100,7 @@ def iterate_once(
         model.load_state_dict(checkpoint)
 
     # Output directory for artifacts.
-    out_dir = Path(hp.output_root) / condition / f"gen_{generation}"
+    out_dir = output_root / f"gen_{generation}"
     model_dir = out_dir / "models"
     out_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -199,6 +201,8 @@ def iterate_multi(condition: str, num_generations: int) -> None:
     model_type = hp.model_type
     device = torch.device(hp.device)
     preds_by_gen = {}
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_root = Path(hp.output_root) / f"{condition}_{timestamp}"
     for gen in range(0, num_generations):
         iterate_once(
             hp=hp,
@@ -209,13 +213,14 @@ def iterate_multi(condition: str, num_generations: int) -> None:
             test_dataset=test_dataset,
             model_type=model_type,
             device=device,
+            output_root=run_root,
         )
-        pred_path = Path(hp.output_root) / condition / f"gen_{gen}" / "predictions.npy"
+        pred_path = run_root / f"gen_{gen}" / "predictions.npy"
         if pred_path.exists():
             preds_by_gen[gen] = np.load(pred_path)
 
     # Save mean trajectory drift plots across generations.
-    drift_dir = Path(hp.output_root) / condition / "drift_plots"
+    drift_dir = run_root / "drift_plots"
     drift_dir.mkdir(parents=True, exist_ok=True)
     item_types = list(test_dataset.item_types)
     unique_types = sorted(set(item_types))
