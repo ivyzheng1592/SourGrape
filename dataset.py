@@ -59,7 +59,7 @@ class SourGrapeDataset(Dataset):
         self.trajectory_len = max_len
 
         # Build character vocab and encode each word to ids.
-        words = df["word"].tolist()
+        words = df["ur"].tolist()
         self.words = words
         self.vocab, self.id_to_char = self._build_vocab(words)
         unk_id = self.vocab[UNK_TOKEN]
@@ -70,10 +70,10 @@ class SourGrapeDataset(Dataset):
         bad = [w for w in words if not isinstance(w, str) or len(w) != expected_word_len]
         if bad:
             warnings.warn(
-                f"Found {len(bad)} words not length {expected_word_len} in 'word'.",
+                f"Found {len(bad)} words not length {expected_word_len} in 'ur'.",
                 stacklevel=2,
             )
-            raise ValueError(f"All 'word' values must be length {expected_word_len}.")
+            raise ValueError(f"All 'ur' values must be length {expected_word_len}.")
         self.word_len = expected_word_len
 
         # Final tensors ready for DataLoader batching (assumes fixed word length).
