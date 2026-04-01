@@ -225,7 +225,7 @@ def iterate_multi(condition: str, num_generations: int) -> None:
     item_types = list(test_dataset.item_types)
     unique_types = sorted(set(item_types))
     targets = test_dataset.y_real.numpy()
-    for item_type in unique_types:
+    for idx_type, item_type in enumerate(unique_types):
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
         if not idxs:
             continue
@@ -233,8 +233,11 @@ def iterate_multi(condition: str, num_generations: int) -> None:
         for gen, preds in preds_by_gen.items():
             mean_by_gen[gen] = preds[idxs].mean(axis=0)
         mean_by_gen["target"] = targets[idxs].mean(axis=0)
-        out_path = drift_dir / f"mean_drift_{item_type}.png"
-    save_mean_trajectory_drift(mean_by_gen, str(out_path))
+        safe_type = "".join(ch for ch in str(item_type) if ch.isalnum() or ch in "_-")
+        if not safe_type:
+            safe_type = f"type_{idx_type}"
+        out_path = drift_dir / f"mean_drift_{safe_type}.png"
+        save_mean_trajectory_drift(mean_by_gen, str(out_path))
 
     # Save loss drift plot across generations.
     history_by_gen = {}
