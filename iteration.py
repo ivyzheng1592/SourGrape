@@ -77,11 +77,11 @@ def iterate_once(
     # Rotate train split by generation number.
     mod = generation % 3
     if mod == 0:
-        train_ds = ds_a
+        train_ds = torch.utils.data.ConcatDataset([ds_a, ds_b])
     elif mod == 1:
-        train_ds = ds_b
+        train_ds = torch.utils.data.ConcatDataset([ds_b, ds_c])
     else:
-        train_ds = ds_c
+        train_ds = torch.utils.data.ConcatDataset([ds_c, ds_a])
 
     train_loader = DataLoader(train_ds, batch_size=hp.batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=hp.batch_size, shuffle=False)
@@ -242,7 +242,7 @@ def iterate_multi(condition: str, num_generations: int) -> None:
     # Save loss drift plot across generations.
     history_by_gen = {}
     for gen in range(0, num_generations):
-        history_path = Path(hp.output_root) / condition / f"gen_{gen}" / "history.csv"
+        history_path = run_root / f"gen_{gen}" / "history.csv"
         if not history_path.exists():
             continue
         train_loss = []

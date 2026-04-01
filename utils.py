@@ -2,6 +2,7 @@ from typing import Iterable, Sequence, Mapping
 
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 from sklearn.decomposition import PCA
 
 
@@ -81,7 +82,11 @@ def save_mean_trajectory_drift(
     plt.xlabel("Time index")
     plt.ylabel("Trajectory value")
     plt.ylim(-0.25, 0.25)
-    plt.legend()
+    plt.legend(
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        borderaxespad=0.0,
+    )
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
@@ -127,8 +132,16 @@ def save_loss_drift(
     ax_test.set_title("Test Loss by Generation")
     ax_test.set_xlabel("Epoch")
     ax_test.set_ylabel("Loss")
-    ax_train.legend()
-    ax_test.legend()
+    ax_train.legend(
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        borderaxespad=0.0,
+    )
+    ax_test.legend(
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        borderaxespad=0.0,
+    )
     fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)
@@ -149,10 +162,12 @@ def save_embedding_pca(
     plt.scatter(coords[:, 0], coords[:, 1], s=30, c=colors)
     for idx, (x, y) in enumerate(coords):
         label = id_to_char.get(idx, str(idx))
-        plt.text(x, y, label, fontsize=9, ha="center", va="center", color=colors[idx])
+        plt.text(x, y, label, fontsize=9, ha="center", va="center", color="black")
+        plt.scatter([], [], color=colors[idx], label=label)
     plt.title("Embedding PCA")
     plt.xlabel("PC1")
     plt.ylabel("PC2")
+    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0.0)
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
