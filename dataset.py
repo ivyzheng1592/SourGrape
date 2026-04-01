@@ -1,5 +1,4 @@
 import json
-import warnings
 from pathlib import Path
 from typing import Dict, Iterable
 
@@ -46,17 +45,12 @@ class SourGrapeDataset(Dataset):
                     torch.tensor(flat).unsqueeze(1)
                 )
                 flat = aug.squeeze(1).detach().cpu().numpy()
-            if flat.shape[0] > max_trajectory_len:
-                raise ValueError(
-                    f"Trajectory length {flat.shape[0]} exceeds max {max_trajectory_len}."
-                )
             sequences.append(flat.astype(np.float32))
-        max_len = max(len(s) for s in sequences) if sequences else 0
         padded = [
-            self._pad_trajectory(s, max_len, trajectory_pad_value) for s in sequences
+            self._pad_trajectory(s, max_trajectory_len, trajectory_pad_value) for s in sequences
         ]
-        traj_matrix = np.vstack(padded) if padded else np.zeros((0, max_len), dtype=np.float32)
-        self.trajectory_len = max_len
+        traj_matrix = np.vstack(padded)
+        self.trajectory_len = max_trajectory_len
 
         # Build character vocab and encode each word to ids.
         words = df["UR"].tolist()
@@ -67,13 +61,6 @@ class SourGrapeDataset(Dataset):
             [self.vocab.get(ch, unk_id) for ch in (w if isinstance(w, str) else "")]
             for w in words
         ]
-        bad = [w for w in words if not isinstance(w, str) or len(w) != expected_word_len]
-        if bad:
-            warnings.warn(
-                f"Found {len(bad)} words not length {expected_word_len} in 'UR'.",
-                stacklevel=2,
-            )
-            raise ValueError(f"All 'UR' values must be length {expected_word_len}.")
         self.word_len = expected_word_len
 
         # Final tensors ready for DataLoader batching (assumes fixed word length).
@@ -104,6 +91,10 @@ class SourGrapeDataset(Dataset):
         trajectory_pad_value: float,
     ) -> np.ndarray:
         # Pad a single trajectory to the target length (no truncation).
+        if flat.shape[0] > pad_to_len:
+            raise ValueError(
+                f"Trajectory length {flat.shape[0]} exceeds max {pad_to_len}."
+            )
         if flat.shape[0] < pad_to_len:
             pad = np.full(
                 pad_to_len - flat.shape[0],
