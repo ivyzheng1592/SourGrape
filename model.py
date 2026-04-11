@@ -13,10 +13,16 @@ class LSTMRegressor(nn.Module):
         hidden_size: int = HyperParams().hidden_size,
         num_layers: int = HyperParams().num_layers,
         dropout: float = HyperParams().dropout,
+        embedding_weights: torch.Tensor,
+        freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
         # Character embeddings; padding index 0 matches PAD_TOKEN.
-        self.embedding = nn.Embedding(input_size, embed_size, padding_idx=0)
+        self.embedding = nn.Embedding.from_pretrained(
+            embedding_weights,
+            freeze=freeze_embedding,
+            padding_idx=HyperParams().pad_token_id,
+        )
         # PyTorch applies dropout between LSTM layers only when num_layers > 1.
         lstm_dropout = dropout if num_layers > 1 else 0.0
         self.lstm = nn.LSTM(
@@ -52,10 +58,16 @@ class Seq2SeqRegressor(nn.Module):
         hidden_size: int = HyperParams().hidden_size,
         num_layers: int = HyperParams().num_layers,
         dropout: float = HyperParams().dropout,
+        embedding_weights: torch.Tensor,
+        freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
         # Encoder maps characters to a hidden state.
-        self.embedding = nn.Embedding(input_size, embed_size, padding_idx=0)
+        self.embedding = nn.Embedding.from_pretrained(
+            embedding_weights,
+            freeze=freeze_embedding,
+            padding_idx=HyperParams().pad_token_id,
+        )
         enc_dropout = dropout if num_layers > 1 else 0.0
         self.encoder = nn.LSTM(
             input_size=embed_size,
@@ -97,3 +109,19 @@ class Seq2SeqRegressor(nn.Module):
         # Project to trajectory values and squeeze the feature dimension.
         y = self.out_proj(dec_out).squeeze(-1)
         return y
+
+
+class PhonemeRegressor(nn.Module):
+    def __init__(
+        self,
+        vocab_size: int,
+        embed_size: int = HyperParams().embed_size,
+    ) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size, padding_idx=0)
+        self.head = nn.Linear(embed_size, 1)
+
+    def forward(self, phoneme_ids: torch.Tensor) -> torch.Tensor:
+        emb = self.embedding(phoneme_ids)
+        out = self.head(emb).squeeze(-1)
+        return out

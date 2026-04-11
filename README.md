@@ -1,92 +1,137 @@
-# LSTM Velum Trajectory Mapping
+# SourGrape: Velum Trajectory Mapping
 
-This project trains character-level models to map each input word to a fixed-length articulatory trajectory (e.g., velum opening over time), including multi-generation training.
+This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`).
 
-## Data format (Metadata CSV)
+The main entry point is `iteration.py`, which runs two conditions (`glide`, `fricative`) for 5 generations each.
 
-Provide a `train_meta_file.csv` and `test_meta_file.csv` with one row per word.
+## What The Code Does
 
-Required columns:
+1. **Phoneme pretraining** (`PhonemeRegressor` in `model.py`)
+   - Reads `phoneme_meta_file.csv` (phoneme → scalar target).
+   - Trains an embedding + linear regressor to predict the scalar target.
+   - Saves embedding PCA plot, loss curves, and checkpoints.
 
-- `UR`: the input word (must be exactly 5 letters).
-- `file_name`: relative path to a `.npy` file containing the output trajectory.
-- `condition`: condition label used to filter rows.
-- `item_type`: item type label used for plotting summaries.
+2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
+   - Reads `train_meta_file.csv` and `test_meta_file.csv`.
+   - Loads each `.npy` trajectory, pads to `max_trajectory_len`, and (optionally) augments train trajectories.
+   - Trains a word→trajectory model and saves predictions + plots.
+   - Updates `y_prev` in the training set using **test‑set predictions matched by word** (see “Data requirements”).
 
-Each `.npy` file must contain **122 numbers** (the output trajectory). If a word is not
-exactly 5 letters or a `.npy` file is not length 122, the loader warns and raises an error.
+## Quick Start
 
-Example header:
+1. Install dependencies:
 
-```
-UR,file_name,condition,item_type
-```
-
-## Quick start
-
-1. Create a virtual environment and install requirements:
-
-```
+```bash
 pip install -r requirements.txt
 ```
 
-2. Example usage (single batch, device + loss):
+2. Place your data under `dataset/` (see “Data requirements” below).
 
-```python
-import torch
-from torch import nn
-from torch.utils.data import DataLoader
+3. Run multi‑generation training:
 
-from dataset import SourGrapeDataset
-from model import LSTMRegressor, Seq2SeqRegressor
-
-dataset = SourGrapeDataset(condition="glide", data_path="dataset/train_meta_file.csv", augment=True)
-loader = DataLoader(dataset, batch_size=4, shuffle=True)
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-batch = next(iter(loader))
-x = batch["x"].to(device)
-y_prev = batch["y_prev"].to(device)
-y_real = batch["y_real"].to(device)
-
-model = LSTMRegressor(
-    input_size=len(dataset.vocab),
-    output_size=dataset.trajectory_len,
-).to(device)
-pred = model(x)
-loss = nn.MSELoss()(pred, y_prev)
-print(pred.shape, y_prev.shape, loss.item())
-
-# Alternate model: simple seq2seq encoder-decoder
-seq2seq = Seq2SeqRegressor(
-    input_size=len(dataset.vocab),
-    output_len=dataset.trajectory_len,
-).to(device)
-seq_pred = seq2seq(x)
-seq_loss = nn.MSELoss()(seq_pred, y_prev)
-print(seq_pred.shape, y_prev.shape, seq_loss.item())
-```
-
-3. Train multi-generation:
-
-```
+```bash
 python iteration.py
 ```
 
+## Data Requirements
+
+### 1) Train/Test metadata CSVs
+`hyper_params.py` expects:
+
+- `dataset/train_meta_file.csv`
+- `dataset/test_meta_file.csv`
+
+Required columns (the code reads these exact names):
+
+- `UR`: the input word string used for character encoding.
+- `file_name`: relative path to a `.npy` trajectory file (resolved under `dataset/`).
+- `condition`: label used to filter rows (e.g., `glide`, `fricative`).
+- `item_type`: used to group plots.
+
+Note: the CSVs in this repo also include a `word` column; it is currently **not used** by the code.
+
+**Word length requirement**: all `UR` strings must be **exactly 5 letters**. The dataset encodes `UR` directly into a fixed-size tensor, so any other length will break batching.
+
+### 2) Trajectory `.npy` files
+Each `file_name` should point to a `.npy` file containing a 1D or flattenable trajectory. The raw data may be multi‑dimensional for use in other projects, but **this project flattens it**. The code:
+
+- Flattens each array
+- Pads to `max_trajectory_len` (default `153`) using `trajectory_pad_value` (default `-999.0`)
+- **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
+
+### 3) Phoneme metadata CSV
+`hyper_params.py` expects:
+
+- `dataset/phoneme_meta_file.csv`
+
+Required columns:
+
+- `phoneme`: a single character (e.g., `m`)
+- `velum_target`: scalar target for pretraining
+
+This file is **not included** in the repo and must be provided.
+
+### 4) Train/Test coupling requirement
+During generation updates, the code maps **test predictions to training items by word**. That means every training `UR` must appear in the **test** CSV. In practice, the training set is **n×** the testing set (n is controlled by how you build the CSVs), and each test `UR` is repeated across the training file. If any training word is missing from test, `run_trajectory_training` will raise:
+
+```
+ValueError: Missing prediction for word: ...
+```
+
+## Configuration
+
+All hyperparameters live in `hyper_params.py`:
+
+- Model type: `model_type = "lstm"` or `"seq2seq"`
+- Embedding size, hidden size, dropout, etc.
+- Training epochs and learning rates
+- Data paths and padding values
+- Device (`cpu`/`cuda`)
+
 ## Outputs
 
-The training run writes:
+Each run writes to:
 
-- `output/gen_<n>/models/`: checkpoints and final model for generation `n`
-- `output/gen_<n>/predictions.npy`: predictions for generation `n`
-- `output/gen_<n>/vocab.json`: character vocabulary
-- `output/gen_<n>/history.csv`: training/test losses and final test loss
-- `output/gen_<n>/loss_curve.png`: loss curve plot
-- `output/gen_<n>/prediction_vs_target_<item_type>.png`: one plot per item type
+```
+output/<condition>_<timestamp>/
+  gen_<n>/
+    pretrain_models/
+    pretrain_history.csv
+    pretrain_loss_curve.png
+    embedding_pca.png
+    models/
+    history.csv
+    loss_curve.png
+    predictions.npy
+    prediction_vs_target_<item_type>.png
+  drift_plots/
+    mean_drift_<item_type>.png
+    loss_drift.png
+```
 
-## Notes
+## Repository Tour
 
-- Training uses `y_prev` targets, which are updated each generation with the previous model's predictions.
-- Evaluation uses `y_real` targets from the metadata `.npy` files.
-- The pipeline assumes `train_meta_file.csv`/`test_meta_file.csv` and `.npy` trajectories.
+- `iteration.py`: multi‑generation training loop (main entry point)
+- `dataset.py`: dataset classes + vocab handling
+- `model.py`: LSTM/seq2seq regressors + phoneme regressor
+- `train_eval.py`: training/evaluation loops
+- `preprocessing.py`: trajectory augmentation
+- `utils.py`: plotting helpers
+- `hyper_params.py`: all configuration
+
+## Trajectory Handling Notes
+
+- **Flattening is intentional**: trajectories are flattened so the model predicts a single 1D vector, even if the raw data is multi‑dimensional.
+- **Padding is required**: trajectories are padded to a fixed length. Longer trajectories stop the run by design.
+- **Loss masking**: training and evaluation loss ignore padded values using `trajectory_pad_value`.
+- **Prediction masking**: predictions are effectively compared only on non‑padded indices, but the **full padded-length vector is still saved** so `y_prev` always has consistent length.
+- **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions), while evaluation uses `y_real` (original targets).
+
+## Other Notes
+
+- Phoneme pretraining embeddings are passed into the trajectory model and frozen by default.
+- Augmentation is enabled for training trajectories by default (`augment=True`).
+
+---
+
+If you want, I can add CLI flags, automatic device selection, or a more robust data pipeline.

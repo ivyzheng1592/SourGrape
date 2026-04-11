@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Tuple
 
 import torch
 from torch import nn
@@ -12,6 +12,7 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    training_type: str,
 ) -> float:
     # One full pass over the training set.
     model.train()
@@ -19,11 +20,14 @@ def train_one_epoch(
     total_loss = 0.0
 
     for batch in dataloader:
-        # Standard training step.
         optimizer.zero_grad(set_to_none=True)
         # Move batch to device and compute loss.
         x = batch["x"].to(device)
-        targets = batch["y_prev"].to(device)
+        if training_type == "pretrain":
+            targets = batch["y"].to(device)
+        else:
+            # Trajectory training is conducted on trajectory value from the previous generation.
+            targets = batch["y_prev"].to(device)
         preds = model(x)
         loss = loss_fn(preds, targets)
         loss.backward()
@@ -40,6 +44,7 @@ def eval_one_epoch(
     dataloader,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    training_type: str,
 ) -> float:
     # One full pass over the validation/test set.
     model.eval()
@@ -47,9 +52,12 @@ def eval_one_epoch(
     total_loss = 0.0
 
     for batch in dataloader:
-        # Forward-only evaluation.
         x = batch["x"].to(device)
-        targets = batch["y_real"].to(device)
+        if training_type == "pretrain":
+            targets = batch["y"].to(device)
+        else:
+            # Trajectory testing is conducted on trajectory value from the original target.
+            targets = batch["y_real"].to(device)
         preds = model(x)
         loss = loss_fn(preds, targets)
         total_loss += loss.item()
@@ -63,6 +71,7 @@ def eval_last_epoch(
     dataloader,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+    training_type: str,
 ) -> Tuple[float, torch.Tensor]:
     # Evaluate on the full test set and record predictions.
     model.eval()
@@ -72,7 +81,11 @@ def eval_last_epoch(
 
     for batch in dataloader:
         x = batch["x"].to(device)
-        y = batch["y_real"].to(device)
+        if training_type == "pretrain":
+            y = batch["y"].to(device)
+        else:
+            # Trajectory testing is conducted on trajectory value from the original target.
+            y = batch["y_real"].to(device)
         preds = model(x)
         loss = loss_fn(preds, y)
         total_loss += loss.item()

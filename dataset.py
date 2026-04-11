@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
-from typing import Dict, Iterable
+from dataclasses import dataclass
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,17 @@ from preprocessing import augment_trajectory_variable_length
 
 
 PAD_TOKEN = "<pad>"  # Reserved id 0 for padding.
-UNK_TOKEN = "<unk>"  # Reserved id 1 for unknown characters.
+
+
+@dataclass
+class Vocab:
+    char_to_id: Dict[str, int]
+    id_to_char: Dict[int, str]
+
+    def save(self, path: str) -> None:
+        # Save vocab for reproducible inference.
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.char_to_id, f, ensure_ascii=True, indent=2)
 
 
 class SourGrapeDataset(Dataset):
@@ -20,10 +31,10 @@ class SourGrapeDataset(Dataset):
         self,
         condition: str,
         data_path: str,
-        expected_word_len: int = HyperParams().expected_word_len,
+        npy_root: str = HyperParams().npy_root,
         trajectory_pad_value: float = HyperParams().trajectory_pad_value,
         max_trajectory_len: int = HyperParams().max_trajectory_len,
-        npy_root: str = HyperParams().npy_root,
+        vocab: "Vocab" | None = None,
         augment: bool = False,
     ) -> None:
         # Read metadata and filter to a single condition.
@@ -52,17 +63,16 @@ class SourGrapeDataset(Dataset):
         traj_matrix = np.vstack(padded)
         self.trajectory_len = max_trajectory_len
 
-        # Build character vocab and encode each word to ids.
+        # Use provided vocab to encode each word to ids.
         words = df["UR"].tolist()
         self.words = words
-        self.vocab, self.id_to_char = self._build_vocab(words)
-        unk_id = self.vocab[UNK_TOKEN]
+        if vocab is None:
+            raise ValueError("Vocab must be provided to SourGrapeDataset.")
+        self.vocab = vocab
         encoded = [
-            [self.vocab.get(ch, unk_id) for ch in (w if isinstance(w, str) else "")]
+            [self.vocab.char_to_id[ch] for ch in (w if isinstance(w, str) else "")]
             for w in words
         ]
-        self.word_len = expected_word_len
-
         # Final tensors ready for DataLoader batching (assumes fixed word length).
         self.x = torch.tensor(encoded, dtype=torch.long)
         # Store real targets and initialize previous-generation targets to real ones.
@@ -104,20 +114,6 @@ class SourGrapeDataset(Dataset):
             flat = np.concatenate([flat, pad], axis=0)
         return flat
 
-    def _build_vocab(self, words: Iterable[str]) -> tuple[Dict[str, int], Dict[int, str]]:
-        # Build a character-level vocab from all words and its inverse map.
-        chars = {ch for w in words if isinstance(w, str) for ch in w}
-        vocab = {PAD_TOKEN: 0, UNK_TOKEN: 1}
-        for ch in sorted(chars):
-            vocab.setdefault(ch, len(vocab))
-        id_to_char = {idx: ch for ch, idx in vocab.items()}
-        return vocab, id_to_char
-
-    def save_vocab(self, path: str) -> None:
-        # Save vocab for reproducible inference.
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.vocab, f, ensure_ascii=True, indent=2)
-
     def update_prev_targets(self, y_prev: torch.Tensor) -> None:
         # Update previous-generation targets using a full prediction matrix.
         if y_prev.shape != self.y_real.shape:
@@ -131,3 +127,35 @@ class SourGrapeDataset(Dataset):
             [1 / 3, 1 / 3, 1 / 3],
             generator=torch.Generator().manual_seed(seed),
         )
+
+
+class PhonemeDataset(Dataset):
+    def __init__(self, data_path: str) -> None:
+        # Load phoneme -> velum target pairs.
+        df = pd.read_csv(data_path)
+        self.phonemes = df["phoneme"].astype(str).tolist()
+        self.targets = df["velum_target"].astype(float).tolist()
+        self._vocab: Vocab | None = None
+
+    def __len__(self) -> int:
+        return len(self.phonemes)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        vocab = self.build_vocab().char_to_id
+        return {
+            "x": torch.tensor(vocab[self.phonemes[idx]], dtype=torch.long),
+            "y": torch.tensor(self.targets[idx], dtype=torch.float32),
+        }
+
+    def build_vocab(self) -> Vocab:
+        # Build char_to_id from the phoneme inventory.
+        if self._vocab is not None:
+            return self._vocab
+        chars = set(self.phonemes)
+        pad_id = HyperParams().pad_token_id
+        char_to_id = {PAD_TOKEN: pad_id}
+        for ch in sorted(chars):
+            char_to_id.setdefault(ch, len(char_to_id))
+        id_to_char = {idx: ch for ch, idx in char_to_id.items()}
+        self._vocab = Vocab(char_to_id=char_to_id, id_to_char=id_to_char)
+        return self._vocab
