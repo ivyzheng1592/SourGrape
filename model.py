@@ -13,16 +13,23 @@ class LSTMRegressor(nn.Module):
         hidden_size: int = HyperParams().hidden_size,
         num_layers: int = HyperParams().num_layers,
         dropout: float = HyperParams().dropout,
-        embedding_weights: torch.Tensor,
+        embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
         # Character embeddings; padding index 0 matches PAD_TOKEN.
-        self.embedding = nn.Embedding.from_pretrained(
-            embedding_weights,
-            freeze=freeze_embedding,
-            padding_idx=HyperParams().pad_token_id,
-        )
+        if embedding_weights is None:
+            self.embedding = nn.Embedding(
+                input_size,
+                embed_size,
+                padding_idx=HyperParams().pad_token_id,
+            )
+        else:
+            self.embedding = nn.Embedding.from_pretrained(
+                embedding_weights,
+                freeze=freeze_embedding,
+                padding_idx=HyperParams().pad_token_id,
+            )
         # PyTorch applies dropout between LSTM layers only when num_layers > 1.
         lstm_dropout = dropout if num_layers > 1 else 0.0
         self.lstm = nn.LSTM(
@@ -58,16 +65,23 @@ class Seq2SeqRegressor(nn.Module):
         hidden_size: int = HyperParams().hidden_size,
         num_layers: int = HyperParams().num_layers,
         dropout: float = HyperParams().dropout,
-        embedding_weights: torch.Tensor,
+        embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
         # Encoder maps characters to a hidden state.
-        self.embedding = nn.Embedding.from_pretrained(
-            embedding_weights,
-            freeze=freeze_embedding,
-            padding_idx=HyperParams().pad_token_id,
-        )
+        if embedding_weights is None:
+            self.embedding = nn.Embedding(
+                input_size,
+                embed_size,
+                padding_idx=HyperParams().pad_token_id,
+            )
+        else:
+            self.embedding = nn.Embedding.from_pretrained(
+                embedding_weights,
+                freeze=freeze_embedding,
+                padding_idx=HyperParams().pad_token_id,
+            )
         enc_dropout = dropout if num_layers > 1 else 0.0
         self.encoder = nn.LSTM(
             input_size=embed_size,
