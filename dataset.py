@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import Dataset, random_split
 
 from hyper_params import HyperParams
-from preprocessing import augment_trajectory_variable_length
+from preprocessing import add_noise, augment_trajectory_variable_length
 
 
 PAD_TOKEN = "<pad>"  # Reserved id 0 for padding.
@@ -130,11 +130,21 @@ class SourGrapeDataset(Dataset):
 
 
 class PhonemeDataset(Dataset):
-    def __init__(self, data_path: str) -> None:
-        # Load phoneme -> velum target pairs.
-        df = pd.read_csv(data_path)
-        self.phonemes = df["phoneme"].astype(str).tolist()
-        self.targets = df["velum_target"].astype(float).tolist()
+    def __init__(
+        self,
+        condition: str,
+        data_path: str,
+        augment: bool = False,
+        noise_std: float = 0.02,
+    ) -> None:
+        # Load phoneme -> target pairs for a single condition.
+        df = pd.read_excel(str(data_path))
+        df = df[df["condition"] == condition]
+        self.phonemes = df["UR"].astype(str).tolist()
+        targets = torch.tensor(df["target"].astype(float).tolist(), dtype=torch.float32)
+        if augment:
+            targets = add_noise(targets, std=noise_std)
+        self.targets = targets.tolist()
         self._vocab: Vocab | None = None
 
     def __len__(self) -> int:

@@ -9,7 +9,7 @@ class HyperParams:
     output_root: str = "output"
 
     # Dataset configuration for phoneme and trajectory stages.
-    phoneme_data_path: str = "dataset/phoneme_meta_file.csv"
+    phoneme_data_path: str = "dataset/phoneme_target_file.xlsx"
     data_split_ratio = [0.8, 0.2]
     train_data_path: str = "dataset/train_meta_file.csv"
     test_data_path: str = "dataset/test_meta_file.csv"

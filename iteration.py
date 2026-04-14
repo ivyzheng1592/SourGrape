@@ -251,7 +251,11 @@ def run_generations(condition: str, num_generations: int) -> None:
     device = torch.device(hp.device)
     
     # Phoneme dataset for the pretraining stage.
-    phoneme_dataset = PhonemeDataset(hp.phoneme_data_path)
+    phoneme_dataset = PhonemeDataset(
+        condition=condition,
+        data_path=hp.phoneme_data_path,
+        augment=True,
+    )
     vocab = phoneme_dataset.build_vocab()
     
     # Trajectory datasets: training uses augmentation, testing uses raw targets.

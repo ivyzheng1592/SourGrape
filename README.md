@@ -7,7 +7,7 @@ The main entry point is `iteration.py`, which runs two conditions (`glide`, `fri
 ## What The Code Does
 
 1. **Phoneme pretraining** (`PhonemeRegressor` in `model.py`)
-   - Reads `phoneme_meta_file.csv` (phoneme → scalar target).
+   - Reads `phoneme_target_file.xlsx` (UR → scalar target).
    - Trains an embedding + linear regressor to predict the scalar target.
    - Saves embedding PCA plot, loss curves, and checkpoints.
 
@@ -59,17 +59,19 @@ Each `file_name` should point to a `.npy` file containing a 1D or flattenable tr
 - Pads to `max_trajectory_len` (default `153`) using `trajectory_pad_value` (default `-999.0`)
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
-### 3) Phoneme metadata CSV
+### 3) Phoneme metadata XLSX
 `hyper_params.py` expects:
 
-- `dataset/phoneme_meta_file.csv`
+- `dataset/phoneme_target_file.xlsx`
 
 Required columns:
 
-- `phoneme`: a single character (e.g., `m`)
-- `velum_target`: scalar target for pretraining
+- `UR`: a single character (e.g., `m`)
+- `target`: scalar target for pretraining
+- `condition`: label used to filter rows (e.g., `glide`, `fricative`)
 
-This file is **not included** in the repo and must be provided.
+Note: the character vocabulary is built from the phoneme dataset for each condition, so all characters in `UR` must appear in the phoneme file for that same condition.
+
 
 ### 4) Train/Test coupling requirement
 During generation updates, the code maps **test predictions to training items by word**. That means every training `UR` must appear in the **test** CSV. In practice, the training set is **n×** the testing set (n is controlled by how you build the CSVs), and each test `UR` is repeated across the training file. If any training word is missing from test, `run_trajectory_training` will raise:
@@ -124,14 +126,10 @@ output/<condition>_<timestamp>/
 - **Flattening is intentional**: trajectories are flattened so the model predicts a single 1D vector, even if the raw data is multi‑dimensional.
 - **Padding is required**: trajectories are padded to a fixed length. Longer trajectories stop the run by design.
 - **Loss masking**: training and evaluation loss ignore padded values using `trajectory_pad_value`.
-- **Prediction masking**: predictions are effectively compared only on non‑padded indices, but the **full padded-length vector is still saved** so `y_prev` always has consistent length.
 - **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions), while evaluation uses `y_real` (original targets).
 
 ## Other Notes
 
 - Phoneme pretraining embeddings are passed into the trajectory model and frozen by default.
 - Augmentation is enabled for training trajectories by default (`augment=True`).
-
----
-
-If you want, I can add CLI flags, automatic device selection, or a more robust data pipeline.
+- Phoneme targets can be perturbed with Gaussian noise when building the dataset (`augment=True`).

@@ -1,7 +1,21 @@
 import torch
 import torch.nn.functional as F
 
-# NOTE: this is the function to use
+def add_noise(x, std=0.02):
+    """
+    Add Gaussian noise with fixed standard deviation.
+
+    Args:
+    x (torch.Tensor): input tensor (any shape)
+    std (float): target standard deviation of noise
+
+    Returns:
+    torch.Tensor: perturbed tensor
+    """
+    noise = torch.randn_like(x) * std
+    return x + noise
+
+
 def augment_trajectory_variable_length(
     x,
     stretch_range=(0.8, 1.25),
