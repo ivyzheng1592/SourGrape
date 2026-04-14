@@ -30,11 +30,11 @@ class SourGrapeDataset(Dataset):
     def __init__(
         self,
         condition: str,
+        vocab: Vocab,
         data_path: str,
         npy_root: str = HyperParams().npy_root,
         trajectory_pad_value: float = HyperParams().trajectory_pad_value,
         max_trajectory_len: int = HyperParams().max_trajectory_len,
-        vocab: "Vocab" | None = None,
         augment: bool = False,
     ) -> None:
         # Read metadata and filter to a single condition.
@@ -66,8 +66,6 @@ class SourGrapeDataset(Dataset):
         # Use provided vocab to encode each word to ids.
         words = df["UR"].tolist()
         self.words = words
-        if vocab is None:
-            raise ValueError("Vocab must be provided to SourGrapeDataset.")
         self.vocab = vocab
         encoded = [
             [self.vocab.char_to_id[ch] for ch in (w if isinstance(w, str) else "")]
@@ -135,7 +133,6 @@ class PhonemeDataset(Dataset):
         condition: str,
         data_path: str,
         augment: bool = False,
-        noise_std: float = 0.02,
     ) -> None:
         # Load phoneme -> target pairs for a single condition.
         df = pd.read_excel(str(data_path))
@@ -143,7 +140,7 @@ class PhonemeDataset(Dataset):
         self.phonemes = df["UR"].astype(str).tolist()
         targets = torch.tensor(df["target"].astype(float).tolist(), dtype=torch.float32)
         if augment:
-            targets = add_noise(targets, std=noise_std)
+            targets = add_noise(targets)
         self.targets = targets.tolist()
         self._vocab: Vocab | None = None
 

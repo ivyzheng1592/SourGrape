@@ -261,17 +261,17 @@ def run_generations(condition: str, num_generations: int) -> None:
     # Trajectory datasets: training uses augmentation, testing uses raw targets.
     trajectory_train_dataset = SourGrapeDataset(
         condition=condition,
+        vocab=vocab,
         data_path=hp.train_data_path,
         npy_root=hp.npy_root,
         augment=True,
-        vocab=vocab,
     )
     trajectory_test_dataset = SourGrapeDataset(
         condition=condition,
+        vocab=vocab,
         data_path=hp.test_data_path,
         npy_root=hp.npy_root,
         augment=False,
-        vocab=vocab,
     )
     
     # Collect predictions across generations for visualization.
