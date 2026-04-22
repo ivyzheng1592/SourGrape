@@ -239,9 +239,16 @@ def run_trajectory_training(
     return preds.numpy()
 
 
-def run_generations(condition: str, num_generations: int) -> None:
+def run_generations(
+    seed: int | None = None,
+    condition: str = "glide",
+    num_generations: int = 5,
+    stage: str = "all",
+) -> None:
     # Train multiple generations with different random seeds.
     hp = HyperParams()
+    if seed is not None:
+        hp.seed = seed
 
     # Select device.
     if hp.device == "cuda" and not torch.cuda.is_available():
@@ -271,31 +278,37 @@ def run_generations(condition: str, num_generations: int) -> None:
     
     # Output folder for all generations in this run.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_root = Path(hp.output_root) / f"{condition}_{timestamp}"
+    run_root = Path(hp.output_root) / f"{condition}_seed{hp.seed}_{timestamp}"
     
     for gen in range(0, num_generations):
-        print("gen=%d, stages=['phoneme_pretrain', 'trajectory_training']" % gen)
+        print("gen=%d, stage=%s" % (gen, stage))
         gen_out_dir = run_root / f"gen_{gen}"
-        
-        # Run phoneme pretraining for this generation.
-        embedding_weights = run_phoneme_pretrain(
-            hp=hp,
-            seed=hp.seed + gen,
-            phoneme_dataset=phoneme_dataset,
-            device=device,
-            out_dir=gen_out_dir,
-        )
-        
-        # Run trajectory training for this generation.
-        preds_by_gen[gen] = run_trajectory_training(
-            hp=hp,
-            seed=hp.seed + gen,
-            trajectory_dataset=trajectory_dataset,
-            model_type=hp.model_type,
-            embedding_weights=embedding_weights,
-            device=device,
-            out_dir=gen_out_dir,
-        )
+        embedding_weights = None
+
+        if stage in {"all", "pretrain"}:
+            # Run phoneme pretraining for this generation.
+            embedding_weights = run_phoneme_pretrain(
+                hp=hp,
+                seed=hp.seed + gen,
+                phoneme_dataset=phoneme_dataset,
+                device=device,
+                out_dir=gen_out_dir,
+            )
+
+        if stage in {"all", "train"}:
+            # Run trajectory training for this generation.
+            preds_by_gen[gen] = run_trajectory_training(
+                hp=hp,
+                seed=hp.seed + gen,
+                trajectory_dataset=trajectory_dataset,
+                model_type=hp.model_type,
+                embedding_weights=embedding_weights,
+                device=device,
+                out_dir=gen_out_dir,
+            )
+
+    if not preds_by_gen:
+        return
 
     # Save the mean trajectory drift plots.
     drift_dir = run_root / "drift_plots"
@@ -307,21 +320,26 @@ def run_generations(condition: str, num_generations: int) -> None:
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
         if not idxs:
             continue
-        mean_by_gen = {}
+        stats_by_gen = {}
         targets_subset = targets[idxs]
         mask = targets_subset != hp.trajectory_pad_value
         for gen, preds in preds_by_gen.items():
             preds_subset = preds[idxs]
             masked = np.where(mask, preds_subset, np.nan)
-            mean_by_gen[gen] = np.nanmean(masked, axis=0)
-        mean_by_gen["target"] = np.nanmean(
-            np.where(mask, targets_subset, np.nan), axis=0
-        )
+            stats_by_gen[gen] = {
+                "mean": np.nanmean(masked, axis=0),
+                "std": np.nanstd(masked, axis=0),
+            }
+        masked_targets = np.where(mask, targets_subset, np.nan)
+        stats_by_gen["target"] = {
+            "mean": np.nanmean(masked_targets, axis=0),
+            "std": np.nanstd(masked_targets, axis=0),
+        }
         safe_type = "".join(ch for ch in str(item_type) if ch.isalnum() or ch in "_-")
         if not safe_type:
             safe_type = f"type_{idx_type}"
         out_path = drift_dir / f"mean_drift_{safe_type}.png"
-        save_mean_trajectory_drift(mean_by_gen, str(out_path))
+        save_mean_trajectory_drift(stats_by_gen, str(out_path))
 
     # Save loss drift plot across generations.
     history_by_gen = {}
@@ -334,7 +352,7 @@ def run_generations(condition: str, num_generations: int) -> None:
         with open(history_path, "r", encoding="utf-8") as f:
             next(f, None)
             for line in f:
-                epoch_str, subset, loss_str = line.strip().split(",")
+                _, subset, loss_str = line.strip().split(",")
                 if subset == "train":
                     train_loss.append(float(loss_str))
                 elif subset == "test":

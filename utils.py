@@ -63,22 +63,38 @@ def save_prediction_plot(
 
 
 def save_mean_trajectory_drift(
-    preds_by_gen: Mapping[int, np.ndarray],
+    stats_by_gen: Mapping[int | str, Mapping[str, np.ndarray]],
     output_path: str,
 ) -> None:
-    # Save one mean trajectory drift plot for a single item type.
-    if not preds_by_gen:
+    # Save one mean trajectory drift plot with SD bands for a single item type.
+    if not stats_by_gen:
         return
-    gens = sorted(k for k in preds_by_gen.keys() if k != "target")
+    gens = sorted(k for k in stats_by_gen.keys() if k != "target")
     colors = plt.cm.viridis(np.linspace(0.2, 0.9, len(gens)))
 
     plt.figure(figsize=(6, 3))
-    # Use "target" key if provided.
-    if "target" in preds_by_gen:
-        plt.plot(preds_by_gen["target"], color="black", linewidth=1.2, label="target")
+    if "target" in stats_by_gen:
+        target_mean = stats_by_gen["target"]["mean"]
+        target_std = stats_by_gen["target"]["std"]
+        plt.plot(target_mean, color="black", linewidth=1.2, label="target")
+        plt.fill_between(
+            range(len(target_mean)),
+            target_mean - target_std,
+            target_mean + target_std,
+            color="black",
+            alpha=0.12,
+        )
     for color, gen in zip(colors, gens):
-        mean_traj = preds_by_gen[gen]
+        mean_traj = stats_by_gen[gen]["mean"]
+        std_traj = stats_by_gen[gen]["std"]
         plt.plot(mean_traj, color=color, linewidth=1.0, label=f"gen_{gen}")
+        plt.fill_between(
+            range(len(mean_traj)),
+            mean_traj - std_traj,
+            mean_traj + std_traj,
+            color=color,
+            alpha=0.18,
+        )
     plt.xlabel("Time index")
     plt.ylabel("Trajectory value")
     plt.ylim(-0.25, 0.25)

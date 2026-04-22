@@ -2,7 +2,7 @@
 
 This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`) while always evaluating against the original trajectories (`y_real`).
 
-The main entry point is `iteration.py`, which runs two conditions (`glide`, `fricative`) for 5 generations each.
+The command-line entry point is `main.py`, which can run one or both conditions (`glide`, `fricative`) for a chosen number of generations.
 
 ## What The Code Does
 
@@ -19,6 +19,7 @@ The main entry point is `iteration.py`, which runs two conditions (`glide`, `fri
      - a **testing** loader that sees each item once per epoch with no augmentation
    - Trains a word→trajectory model and saves predictions + plots.
    - Updates `y_prev` row-by-row from the final predictions of the current generation.
+   - Saves trajectory drift plots with mean curves and SD bands across generations.
 
 ## Quick Start
 
@@ -33,7 +34,20 @@ pip install -r requirements.txt
 3. Run multi‑generation training:
 
 ```bash
-python iteration.py
+python main.py --seed 42
+```
+
+To run a specific condition or change the number of generations:
+
+```bash
+python main.py --condition glide --generations 3 --seed 42
+```
+
+To run only one stage:
+
+```bash
+python main.py --condition glide --stage pretrain --seed 42
+python main.py --condition glide --stage train --seed 42
 ```
 
 ## Data Requirements
@@ -98,7 +112,7 @@ All hyperparameters live in `hyper_params.py`:
 Each run writes to:
 
 ```
-output/<condition>_<timestamp>/
+output/<condition>_seed<seed>_<timestamp>/
   gen_<n>/
     pretrain_models/
     pretrain_history.csv
@@ -114,9 +128,13 @@ output/<condition>_<timestamp>/
     loss_drift.png
 ```
 
+If `--stage pretrain` is used, the run only writes pretraining artifacts.
+If `--stage train` is used, the run skips phoneme pretraining and trains the trajectory model without pretrained embeddings.
+
 ## Repository Tour
 
-- `iteration.py`: multi‑generation training loop (main entry point)
+- `main.py`: command-line entry point
+- `iteration.py`: multi‑generation training loop
 - `dataset.py`: dataset classes + vocab handling
 - `model.py`: LSTM/seq2seq regressors + phoneme regressor
 - `train_eval.py`: training/evaluation loops
@@ -132,6 +150,7 @@ output/<condition>_<timestamp>/
 - **Loss masking**: training and evaluation loss ignore padded values using `trajectory_pad_value`.
 - **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
+- **Drift plots include variability**: the mean trajectory drift plot shows mean trajectories with SD bands for the target and each generation.
 
 ## Other Notes
 

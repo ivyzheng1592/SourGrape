@@ -1,5 +1,5 @@
-word,UR,item_type,condition
-nasal_fri_token,nasal_fri,PEN,fricative
-oral_fri_token,oral_fri,PEN,fricative
-nasal_gli_token,nasal_gli,PEN,glide
-oral_gli_token,oral_gli,PEN,glide
+word,UR,item_type,condition,file_name
+nasal_fri_token,nasal_fri,PEN,fricative,nasal_fri_token_raw.npy
+oral_fri_token,oral_fri,PEN,fricative,oral_fri_token_raw.npy
+nasal_gli_token,nasal_gli,PEN,glide,nasal_gli_token_raw.npy
+oral_gli_token,oral_gli,PEN,glide,oral_gli_token_raw.npy
