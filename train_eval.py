@@ -15,11 +15,13 @@ def train_one_epoch(
     aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     aux_loss_weight: float = 0.0,
     training_type: str = "train",
-) -> float:
+) -> Tuple[float, float, float]:
     # Run one training epoch.
     model.train()
 
     total_loss = 0.0
+    main_loss_total = 0.0
+    aux_loss_total = 0.0
 
     for batch in dataloader:
         optimizer.zero_grad(set_to_none=True)
@@ -30,17 +32,26 @@ def train_one_epoch(
             # Train the trajectory model on y_prev.
             targets = batch["y_prev"].to(device)
         preds = model(x)
-        loss = loss_fn(preds, targets)
+        main_loss = loss_fn(preds, targets)
+        aux_loss = torch.tensor(0.0, device=device)
         if aux_loss_fn is not None and training_type != "pretrain":
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
-            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
+            aux_loss = aux_loss_fn(preds, penalty_targets)
+        loss = main_loss + aux_loss_weight * aux_loss
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
+        main_loss_total += main_loss.item()
+        aux_loss_total += aux_loss.item()
 
-    return total_loss / max(len(dataloader), 1)
+    num_batches = max(len(dataloader), 1)
+    return (
+        total_loss / num_batches,
+        main_loss_total / num_batches,
+        aux_loss_total / num_batches,
+    )
 
 
 @torch.no_grad()
@@ -52,11 +63,13 @@ def eval_one_epoch(
     aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     aux_loss_weight: float = 0.0,
     training_type: str = "train",
-) -> float:
+) -> Tuple[float, float, float]:
     # Run one evaluation epoch.
     model.eval()
 
     total_loss = 0.0
+    main_loss_total = 0.0
+    aux_loss_total = 0.0
 
     for batch in dataloader:
         x = batch["x"].to(device)
@@ -66,14 +79,23 @@ def eval_one_epoch(
             # Evaluate the trajectory model on y_real.
             targets = batch["y_real"].to(device)
         preds = model(x)
-        loss = loss_fn(preds, targets)
+        main_loss = loss_fn(preds, targets)
+        aux_loss = torch.tensor(0.0, device=device)
         if aux_loss_fn is not None and training_type != "pretrain":
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
-            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
+            aux_loss = aux_loss_fn(preds, penalty_targets)
+        loss = main_loss + aux_loss_weight * aux_loss
         total_loss += loss.item()
+        main_loss_total += main_loss.item()
+        aux_loss_total += aux_loss.item()
 
-    return total_loss / max(len(dataloader), 1)
+    num_batches = max(len(dataloader), 1)
+    return (
+        total_loss / num_batches,
+        main_loss_total / num_batches,
+        aux_loss_total / num_batches,
+    )
 
 
 @torch.no_grad()
@@ -85,11 +107,13 @@ def eval_last_epoch(
     aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
     aux_loss_weight: float = 0.0,
     training_type: str = "train",
-) -> Tuple[float, torch.Tensor]:
+) -> Tuple[float, float, float, torch.Tensor]:
     # Evaluate on the full dataset and collect predictions.
     model.eval()
 
     total_loss = 0.0
+    main_loss_total = 0.0
+    aux_loss_total = 0.0
     preds_all = []
 
     for batch in dataloader:
@@ -100,13 +124,23 @@ def eval_last_epoch(
             # Evaluate the trajectory model on y_real.
             y = batch["y_real"].to(device)
         preds = model(x)
-        loss = loss_fn(preds, y)
+        main_loss = loss_fn(preds, y)
+        aux_loss = torch.tensor(0.0, device=device)
         if aux_loss_fn is not None and training_type != "pretrain":
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
-            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
+            aux_loss = aux_loss_fn(preds, penalty_targets)
+        loss = main_loss + aux_loss_weight * aux_loss
         total_loss += loss.item()
+        main_loss_total += main_loss.item()
+        aux_loss_total += aux_loss.item()
         preds_all.append(preds.cpu())
 
     pred_matrix = torch.cat(preds_all, dim=0)
-    return total_loss / max(len(dataloader), 1), pred_matrix
+    num_batches = max(len(dataloader), 1)
+    return (
+        total_loss / num_batches,
+        main_loss_total / num_batches,
+        aux_loss_total / num_batches,
+        pred_matrix,
+    )

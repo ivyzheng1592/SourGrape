@@ -61,10 +61,10 @@ def run_phoneme_pretrain(
         "test_loss": [],
     }
     for epoch in range(1, hp.pretrain_epochs + 1):
-        train_loss = train_one_epoch(
+        train_loss, _, _ = train_one_epoch(
             model, train_loader, optimizer, device, loss_fn, training_type="pretrain"
         )
-        test_loss = eval_one_epoch(
+        test_loss, _, _ = eval_one_epoch(
             model, test_loader, device, loss_fn, training_type="pretrain"
         )
         history["train_loss"].append(train_loss)
@@ -182,10 +182,14 @@ def run_trajectory_training(
     history = {
         "train_loss": [],
         "test_loss": [],
+        "train_main_loss": [],
+        "test_main_loss": [],
+        "train_penalty_loss": [],
+        "test_penalty_loss": [],
     }
     history_rows = []
     for epoch in range(1, hp.epochs + 1):
-        train_loss = train_one_epoch(
+        train_loss, train_main_loss, train_penalty_loss = train_one_epoch(
             model,
             train_loader,
             optimizer,
@@ -195,7 +199,7 @@ def run_trajectory_training(
             aux_loss_weight=hp.penalty_loss_weight,
             training_type="train",
         )
-        test_loss = eval_one_epoch(
+        test_loss, test_main_loss, test_penalty_loss = eval_one_epoch(
             model,
             test_loader,
             device,
@@ -206,9 +210,19 @@ def run_trajectory_training(
         )
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
-        history_rows.append((epoch, "train", train_loss))
-        history_rows.append((epoch, "test", test_loss))
-        print(f"epoch={epoch}, train_loss={train_loss:.6f}, test_loss={test_loss:.6f}")
+        history["train_main_loss"].append(train_main_loss)
+        history["test_main_loss"].append(test_main_loss)
+        history["train_penalty_loss"].append(train_penalty_loss)
+        history["test_penalty_loss"].append(test_penalty_loss)
+        history_rows.append((epoch, "train", train_loss, train_main_loss, train_penalty_loss))
+        history_rows.append((epoch, "test", test_loss, test_main_loss, test_penalty_loss))
+        print(
+            f"epoch={epoch}, "
+            f"train_loss={train_loss:.6f}, train_main_loss={train_main_loss:.6f}, "
+            f"train_penalty_loss={train_penalty_loss:.6f}, "
+            f"test_loss={test_loss:.6f}, test_main_loss={test_main_loss:.6f}, "
+            f"test_penalty_loss={test_penalty_loss:.6f}"
+        )
         # Save a checkpoint every five epochs.
         if epoch % 5 == 0:
             ckpt_path = model_dir / f"model_epoch_{epoch:03d}.pt"
@@ -219,7 +233,7 @@ def run_trajectory_training(
     save_loss_plot(history, str(loss_plot_path))
 
     # Evaluate the model on the full trajectory dataset.
-    final_loss, preds = eval_last_epoch(
+    final_loss, final_main_loss, final_penalty_loss, preds = eval_last_epoch(
         model,
         test_loader,
         device,
@@ -229,8 +243,14 @@ def run_trajectory_training(
         training_type="train",
     )
     history["final_test_loss"] = final_loss
-    history_rows.append((hp.epochs, "final_test", final_loss))
-    print(f"final_test_loss={final_loss:.6f}")
+    history["final_test_main_loss"] = final_main_loss
+    history["final_test_penalty_loss"] = final_penalty_loss
+    history_rows.append((hp.epochs, "final_test", final_loss, final_main_loss, final_penalty_loss))
+    print(
+        f"final_test_loss={final_loss:.6f}, "
+        f"final_test_main_loss={final_main_loss:.6f}, "
+        f"final_test_penalty_loss={final_penalty_loss:.6f}"
+    )
 
     # Get the mean value of y_prev before updating it.
     masked_mean_before = torch.cat(trajectory_dataset.y_prev).mean().item()
@@ -264,9 +284,9 @@ def run_trajectory_training(
     # Save training history as CSV.
     history_path = out_dir / "history.csv"
     with open(history_path, "w", encoding="utf-8") as f:
-        f.write("epoch,subset,loss\n")
-        for epoch, subset, loss in history_rows:
-            f.write(f"{epoch},{subset},{loss}\n")
+        f.write("epoch,subset,loss,main_loss,penalty_loss\n")
+        for epoch, subset, loss, main_loss, penalty_loss in history_rows:
+            f.write(f"{epoch},{subset},{loss},{main_loss},{penalty_loss}\n")
     np.save(out_dir / "predictions.npy", preds.numpy())
     
     return preds.numpy()
@@ -387,7 +407,10 @@ def run_generations(
         with open(history_path, "r", encoding="utf-8") as f:
             next(f, None)
             for line in f:
-                _, subset, loss_str = line.strip().split(",")
+                parts = line.strip().split(",")
+                if len(parts) < 3:
+                    continue
+                _, subset, loss_str = parts[:3]
                 if subset == "train":
                     train_loss.append(float(loss_str))
                 elif subset == "test":
