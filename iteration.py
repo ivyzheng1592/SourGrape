@@ -38,7 +38,7 @@ def run_phoneme_pretrain(
     # Build the training and test loaders.
     train_ds, test_ds = torch.utils.data.random_split(
         phoneme_dataset,
-        hp.data_split_ratio,
+        hp.pretrain_data_split_ratio,
         generator=torch.Generator().manual_seed(seed),
     )
     train_loader = DataLoader(train_ds, batch_size=hp.batch_size, shuffle=True)
@@ -104,7 +104,7 @@ def run_trajectory_training(
     seed: int,
     trajectory_dataset: SourGrapeDataset,
     model_type: str,
-    embedding_weights: torch.Tensor,
+    embedding_weights: torch.Tensor | None,
     device: torch.device,
     out_dir: Path,
     resume_path: str = "",
@@ -159,6 +159,21 @@ def run_trajectory_training(
         weight = (targets != hp.trajectory_pad_value).to(targets.dtype)
         return F.mse_loss(preds, targets, reduction="sum", weight=weight)
 
+    def penalty_loss_fn(
+        preds: torch.Tensor,
+        penalty_targets: torch.Tensor,
+    ) -> torch.Tensor:
+        pred_activity = torch.sigmoid(
+            hp.penalty_sigmoid_scale * (preds - hp.penalty_threshold)
+        )
+        weight = (penalty_targets != hp.trajectory_pad_value).to(preds.dtype)
+        loss = F.binary_cross_entropy(
+            pred_activity,
+            penalty_targets,
+            reduction="none",
+        )
+        return (loss * weight).sum()
+
     # Optionally resume from a checkpoint.
     if resume_path:
         checkpoint = torch.load(resume_path, map_location=device)
@@ -172,10 +187,23 @@ def run_trajectory_training(
     history_rows = []
     for epoch in range(1, hp.epochs + 1):
         train_loss = train_one_epoch(
-            model, train_loader, optimizer, device, loss_fn, training_type="train"
+            model,
+            train_loader,
+            optimizer,
+            device,
+            loss_fn,
+            aux_loss_fn=penalty_loss_fn,
+            aux_loss_weight=hp.penalty_loss_weight,
+            training_type="train",
         )
         test_loss = eval_one_epoch(
-            model, test_loader, device, loss_fn, training_type="train"
+            model,
+            test_loader,
+            device,
+            loss_fn,
+            aux_loss_fn=penalty_loss_fn,
+            aux_loss_weight=hp.penalty_loss_weight,
+            training_type="train",
         )
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
@@ -193,7 +221,13 @@ def run_trajectory_training(
 
     # Evaluate the model on the full trajectory dataset.
     final_loss, preds = eval_last_epoch(
-        model, test_loader, device, loss_fn, training_type="train"
+        model,
+        test_loader,
+        device,
+        loss_fn,
+        aux_loss_fn=penalty_loss_fn,
+        aux_loss_weight=hp.penalty_loss_weight,
+        training_type="train",
     )
     history["final_test_loss"] = final_loss
     history_rows.append((hp.epochs, "final_test", final_loss))
@@ -269,8 +303,10 @@ def run_generations(
     trajectory_dataset = SourGrapeDataset(
         vocab=vocab,
         condition=condition,
-        data_path=hp.data_path,
-        npy_root=hp.npy_root,
+        trajectory_data_path=hp.trajectory_data_path,
+        trajectory_npy_root=hp.trajectory_npy_root,
+        penalty_data_path=hp.penalty_data_path,
+        penalty_npy_root=hp.penalty_npy_root,
     )
     
     # Store the predictions from each generation.
@@ -360,8 +396,3 @@ def run_generations(
         history_by_gen[gen] = {"train_loss": train_loss, "test_loss": test_loss}
     loss_drift_path = drift_dir / "loss_drift.png"
     save_loss_drift(history_by_gen, str(loss_drift_path))
-
-
-if __name__ == "__main__":
-    run_generations(num_generations=5, condition="glide")
-    run_generations(num_generations=5, condition="fricative")

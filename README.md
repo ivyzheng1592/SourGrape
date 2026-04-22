@@ -14,12 +14,14 @@ The command-line entry point is `main.py`, which can run one or both conditions 
 2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
    - Reads one metadata file, `meta_file.csv`.
    - Loads each `.npy` trajectory, stores raw variable-length targets, and pads batches to `max_trajectory_len` during collation.
+   - Loads a penalty target for each `item_type` from `nasal_penalty_meta_file.csv`.
    - Builds two dataloaders from the same dataset:
      - a **training** loader that sees each item `train_repeats_per_epoch` times per epoch in mixed order, with on-the-fly augmentation applied to `y_prev`
      - a **testing** loader that sees each item once per epoch with no augmentation
    - Trains a word→trajectory model and saves predictions + plots.
    - Updates `y_prev` row-by-row from the final predictions of the current generation.
    - Saves trajectory drift plots with mean curves and SD bands across generations.
+   - Adds an auxiliary penalty loss that compares predicted nasal activity against the penalty target.
 
 ## Quick Start
 
@@ -89,8 +91,21 @@ Required columns:
 
 Note: the character vocabulary is built from the phoneme dataset for each condition, so all characters in `UR` must appear in the phoneme file for that same condition.
 
+### 4) Nasal Penalty Metadata
+`hyper_params.py` expects:
 
-### 4) Repeated Training Passes
+- `dataset/nasal_penalty_meta_file.csv`
+- `dataset/nasal_penalty/`
+
+Required columns:
+
+- `item_type`: item type in the main metadata file
+- `condition`: condition label used to filter rows
+- `file_name`: penalty `.npy` file for that item type
+
+Each penalty file is a time-aligned target used by the auxiliary penalty loss during trajectory training.
+
+### 5) Repeated Training Passes
 The trajectory stage uses a single dataset for both training and testing.
 
 - During **training**, each epoch repeats the full dataset `train_repeats_per_epoch` times (default `20`) in mixed order using a sampler.
@@ -105,6 +120,7 @@ All hyperparameters live in `hyper_params.py`:
 - Embedding size, hidden size, dropout, etc.
 - Training epochs and learning rates
 - Data path, repetition count, and padding values
+- Penalty loss paths and parameters
 - Device (`cpu`/`cuda`)
 
 ## Outputs
@@ -151,6 +167,7 @@ If `--stage train` is used, the run skips phoneme pretraining and trains the tra
 - **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Drift plots include variability**: the mean trajectory drift plot shows mean trajectories with SD bands for the target and each generation.
+- **Penalty loss supervision**: trajectory training also compares predicted nasal activity against the penalty targets loaded from `nasal_penalty_meta_file.csv`.
 
 ## Other Notes
 

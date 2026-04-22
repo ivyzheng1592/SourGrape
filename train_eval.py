@@ -12,24 +12,29 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str,
+    aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    aux_loss_weight: float = 0.0,
+    training_type: str = "train",
 ) -> float:
-    # One full pass over the training set.
+    # Run one training epoch.
     model.train()
 
     total_loss = 0.0
 
     for batch in dataloader:
         optimizer.zero_grad(set_to_none=True)
-        # Move batch to device and compute loss.
         x = batch["x"].to(device)
         if training_type == "pretrain":
             targets = batch["y"].to(device)
         else:
-            # Trajectory training is conducted on trajectory value from the previous generation.
+            # Train the trajectory model on y_prev.
             targets = batch["y_prev"].to(device)
         preds = model(x)
         loss = loss_fn(preds, targets)
+        if aux_loss_fn is not None and training_type != "pretrain":
+            # Add the penalty loss to the trajectory loss.
+            penalty_targets = batch["penalty_target"].to(device)
+            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
         loss.backward()
         optimizer.step()
 
@@ -44,9 +49,11 @@ def eval_one_epoch(
     dataloader,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str,
+    aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    aux_loss_weight: float = 0.0,
+    training_type: str = "train",
 ) -> float:
-    # One full pass over the validation/test set.
+    # Run one evaluation epoch.
     model.eval()
 
     total_loss = 0.0
@@ -56,10 +63,14 @@ def eval_one_epoch(
         if training_type == "pretrain":
             targets = batch["y"].to(device)
         else:
-            # Trajectory testing is conducted on trajectory value from the original target.
+            # Evaluate the trajectory model on y_real.
             targets = batch["y_real"].to(device)
         preds = model(x)
         loss = loss_fn(preds, targets)
+        if aux_loss_fn is not None and training_type != "pretrain":
+            # Add the penalty loss to the trajectory loss.
+            penalty_targets = batch["penalty_target"].to(device)
+            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
         total_loss += loss.item()
 
     return total_loss / max(len(dataloader), 1)
@@ -71,9 +82,11 @@ def eval_last_epoch(
     dataloader,
     device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str,
+    aux_loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,
+    aux_loss_weight: float = 0.0,
+    training_type: str = "train",
 ) -> Tuple[float, torch.Tensor]:
-    # Evaluate on the full test set and record predictions.
+    # Evaluate on the full dataset and collect predictions.
     model.eval()
 
     total_loss = 0.0
@@ -84,10 +97,14 @@ def eval_last_epoch(
         if training_type == "pretrain":
             y = batch["y"].to(device)
         else:
-            # Trajectory testing is conducted on trajectory value from the original target.
+            # Evaluate the trajectory model on y_real.
             y = batch["y_real"].to(device)
         preds = model(x)
         loss = loss_fn(preds, y)
+        if aux_loss_fn is not None and training_type != "pretrain":
+            # Add the penalty loss to the trajectory loss.
+            penalty_targets = batch["penalty_target"].to(device)
+            loss = loss + aux_loss_weight * aux_loss_fn(preds, penalty_targets)
         total_loss += loss.item()
         preds_all.append(preds.cpu())
 
