@@ -166,13 +166,12 @@ def run_trajectory_training(
         pred_activity = torch.sigmoid(
             hp.penalty_sigmoid_scale * (preds - hp.penalty_threshold)
         )
-        weight = (penalty_targets != hp.trajectory_pad_value).to(preds.dtype)
-        loss = F.binary_cross_entropy(
-            pred_activity,
-            penalty_targets,
-            reduction="none",
+        weight = penalty_targets != hp.trajectory_pad_value
+        return F.binary_cross_entropy(
+            pred_activity[weight],
+            penalty_targets[weight],
+            reduction="sum",
         )
-        return (loss * weight).sum()
 
     # Optionally resume from a checkpoint.
     if resume_path:
