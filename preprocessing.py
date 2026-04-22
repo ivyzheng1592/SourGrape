@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-def add_noise(x, std=0.02):
+def add_noise(x, std=0.01):
     """
     Add Gaussian noise with fixed standard deviation.
 
