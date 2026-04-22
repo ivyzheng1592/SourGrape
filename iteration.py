@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 from hyper_params import HyperParams
-from dataset import SourGrapeDataset, PhonemeDataset
+from dataset import RepeatShuffleSampler, SourGrapeDataset, PhonemeDataset
 from model import LSTMRegressor, Seq2SeqRegressor, PhonemeRegressor
 from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
 from utils import (
@@ -33,11 +33,11 @@ def run_phoneme_pretrain(
     out_dir.mkdir(parents=True, exist_ok=True)
     model_dir = out_dir / "pretrain_models"
     model_dir.mkdir(parents=True, exist_ok=True)
+    phoneme_dataset.vocab.save(out_dir / "vocab.json")
 
-    # Dataset and dataloaders (configurable split).
-    pretrain_dataset = phoneme_dataset
+    # Build the training and test loaders.
     train_ds, test_ds = torch.utils.data.random_split(
-        pretrain_dataset,
+        phoneme_dataset,
         hp.data_split_ratio,
         generator=torch.Generator().manual_seed(seed),
     )
@@ -45,8 +45,11 @@ def run_phoneme_pretrain(
     test_loader = DataLoader(test_ds, batch_size=hp.batch_size, shuffle=False)
 
     # Model initialization.
-    vocab = phoneme_dataset.build_vocab().char_to_id
-    model = PhonemeRegressor(len(vocab), embed_size=hp.embed_size).to(device)
+    vocab = phoneme_dataset.vocab.char_to_id
+    model = PhonemeRegressor(
+        vocab_size=len(vocab), 
+        embed_size=hp.embed_size
+    ).to(device)
 
     # Optimization setup.
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.pretrain_lr)
@@ -78,7 +81,7 @@ def run_phoneme_pretrain(
     # Save PCA plot of embedding weights from the pretraining stage.
     emb = model.embedding.weight.detach().cpu().numpy()
     pca_path = out_dir / "embedding_pca.png"
-    save_embedding_pca(emb, phoneme_dataset.build_vocab().id_to_char, str(pca_path))
+    save_embedding_pca(emb, phoneme_dataset.vocab.id_to_char, str(pca_path))
 
     # Save a single loss plot for the pretraining stage.
     loss_plot_path = out_dir / "pretrain_loss_curve.png"
@@ -99,47 +102,52 @@ def run_phoneme_pretrain(
 def run_trajectory_training(
     hp: HyperParams,
     seed: int,
-    gen: int,
-    trajectory_train_dataset: SourGrapeDataset,
-    trajectory_test_dataset: SourGrapeDataset,
+    trajectory_dataset: SourGrapeDataset,
     model_type: str,
     embedding_weights: torch.Tensor,
     device: torch.device,
     out_dir: Path,
     resume_path: str = "",
-) -> None:
+) -> np.ndarray:
     # Reproducibility.
     torch.manual_seed(seed)
 
-    # Dataset and dataloaders.
-    ds_a, ds_b, ds_c = trajectory_train_dataset.split_dataset(seed=seed)
+    # Output directory for artifacts.
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model_dir = out_dir / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Rotate train split by generation number.
-    mod = gen % 3
-    if mod == 0:
-        train_ds = torch.utils.data.ConcatDataset([ds_a, ds_b])
-    elif mod == 1:
-        train_ds = torch.utils.data.ConcatDataset([ds_b, ds_c])
-    else:
-        train_ds = torch.utils.data.ConcatDataset([ds_c, ds_a])
-
-    train_loader = DataLoader(train_ds, batch_size=hp.batch_size, shuffle=True)
+    # Build the training and test loaders.
+    train_sampler = RepeatShuffleSampler(
+        dataset_size=len(trajectory_dataset),
+        repeats=hp.train_repeats_per_epoch,
+        seed=seed,
+    )
+    train_loader = DataLoader(
+        trajectory_dataset,
+        batch_size=hp.batch_size,
+        sampler=train_sampler,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=True),
+    )
     test_loader = DataLoader(
-        trajectory_test_dataset, batch_size=hp.batch_size, shuffle=False
+        trajectory_dataset,
+        batch_size=hp.batch_size,
+        shuffle=False,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=False),
     )
 
     # Model selection.
     if model_type == "seq2seq":
         model = Seq2SeqRegressor(
-            input_size=len(trajectory_train_dataset.vocab.char_to_id),
-            output_len=trajectory_train_dataset.trajectory_len,
+            input_size=len(trajectory_dataset.vocab.char_to_id),
+            output_len=trajectory_dataset.max_trajectory_len,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )
     else:
         model = LSTMRegressor(
-            input_size=len(trajectory_train_dataset.vocab.char_to_id),
-            output_size=trajectory_train_dataset.trajectory_len,
+            input_size=len(trajectory_dataset.vocab.char_to_id),
+            output_size=trajectory_dataset.max_trajectory_len,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )
@@ -155,11 +163,6 @@ def run_trajectory_training(
     if resume_path:
         checkpoint = torch.load(resume_path, map_location=device)
         model.load_state_dict(checkpoint)
-
-    # Output directory for artifacts.
-    model_dir = out_dir / "models"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
 
     # Training loop.
     history = {
@@ -185,10 +188,10 @@ def run_trajectory_training(
             torch.save(model.state_dict(), ckpt_path)
 
     # Save a single loss plot for this run.
-    plot_path = out_dir / "loss_curve.png"
-    save_loss_plot(history, str(plot_path))
+    loss_plot_path = out_dir / "loss_curve.png"
+    save_loss_plot(history, str(loss_plot_path))
 
-    # Final evaluation and prediction capture for next generation.
+    # Evaluate the model on the full trajectory dataset.
     final_loss, preds = eval_last_epoch(
         model, test_loader, device, loss_fn, training_type="train"
     )
@@ -196,40 +199,29 @@ def run_trajectory_training(
     history_rows.append((hp.epochs, "final_test", final_loss))
     print(f"final_test_loss={final_loss:.6f}")
 
-    mask_before = trajectory_train_dataset.y_prev != hp.trajectory_pad_value
-    prev_before = trajectory_train_dataset.y_prev[mask_before].mean().item()
-    # Map predictions to training items by word.
-    pred_map = {}
-    for i, word in enumerate(trajectory_test_dataset.words):
-        if word not in pred_map:
-            pred_map[word] = preds[i]
-    preds_train = []
-    for word in trajectory_train_dataset.words:
-        if word not in pred_map:
-            raise ValueError(f"Missing prediction for word: {word}")
-        preds_train.append(pred_map[word])
-    preds_train = torch.stack(preds_train, dim=0)
-    trajectory_train_dataset.update_prev_targets(preds_train)
-    mask_after = trajectory_train_dataset.y_prev != hp.trajectory_pad_value
-    prev_after = trajectory_train_dataset.y_prev[mask_after].mean().item()
-    print(f"y_prev_mean_before={prev_before:.6f}, y_prev_mean_after={prev_after:.6f}")
+    # Get the mean value of y_prev before updating it.
+    masked_mean_before = torch.cat(trajectory_dataset.y_prev).mean().item()
+    # Update y_prev with the current generation predictions.
+    trajectory_dataset.update_prev_targets(preds)
+    # Get the mean value of y_prev after updating it.
+    masked_mean_after = torch.cat(trajectory_dataset.y_prev).mean().item()
+    print(
+        f"y_prev_mean_before={masked_mean_before:.6f}, "
+        f"y_prev_mean_after={masked_mean_after:.6f}"
+    )
 
-    # Save one prediction plot per item type (ignore padded values in visualization).
+    # Save one prediction plot per item type.
     seen_types = set()
-    for idx in range(len(trajectory_test_dataset)):
-        item_type = trajectory_test_dataset[idx]["item_type"]
+    for idx in range(len(trajectory_dataset)):
+        item_type = trajectory_dataset[idx]["item_type"]
         if item_type in seen_types:
             continue
         word = "".join(
-            trajectory_test_dataset.vocab.id_to_char[i]
-            for i in trajectory_test_dataset[idx]["x"].tolist()
+            trajectory_dataset.vocab.id_to_char[i]
+            for i in trajectory_dataset[idx]["x"].tolist()
         )
-        target = trajectory_test_dataset[idx]["y_real"].tolist()
-        prediction = preds[idx].tolist()
-        pad_value = hp.trajectory_pad_value
-        mask = [t != pad_value for t in target]
-        target = [t for t, keep in zip(target, mask) if keep]
-        prediction = [p for p, keep in zip(prediction, mask) if keep]
+        target = trajectory_dataset[idx]["y_real"].tolist()
+        prediction = preds[idx, : len(target)].tolist()
         pred_path = out_dir / f"prediction_vs_target_{item_type}.png"
         save_prediction_plot(word, target, prediction, str(pred_path))
         seen_types.add(item_type)
@@ -243,82 +235,74 @@ def run_trajectory_training(
         for epoch, subset, loss in history_rows:
             f.write(f"{epoch},{subset},{loss}\n")
     np.save(out_dir / "predictions.npy", preds.numpy())
+    
+    return preds.numpy()
 
 
 def run_generations(condition: str, num_generations: int) -> None:
     # Train multiple generations with different random seeds.
     hp = HyperParams()
-    device = torch.device(hp.device)
+
+    # Select device.
+    if hp.device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available; falling back to CPU.")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(hp.device)
     
-    # Phoneme dataset for the pretraining stage.
+    # Load the phoneme dataset for the pretraining stage.
     phoneme_dataset = PhonemeDataset(
         condition=condition,
         data_path=hp.phoneme_data_path,
         augment=True,
     )
-    vocab = phoneme_dataset.build_vocab()
+    vocab = phoneme_dataset.vocab
     
-    # Trajectory datasets: training uses augmentation, testing uses raw targets.
-    trajectory_train_dataset = SourGrapeDataset(
-        condition=condition,
+    # Load the trajectory dataset for the training stage.
+    trajectory_dataset = SourGrapeDataset(
         vocab=vocab,
-        data_path=hp.train_data_path,
-        npy_root=hp.npy_root,
-        augment=True,
-    )
-    trajectory_test_dataset = SourGrapeDataset(
         condition=condition,
-        vocab=vocab,
-        data_path=hp.test_data_path,
+        data_path=hp.data_path,
         npy_root=hp.npy_root,
-        augment=False,
     )
     
-    # Collect predictions across generations for visualization.
+    # Store the predictions from each generation.
     preds_by_gen = {}
     
     # Output folder for all generations in this run.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_root = Path(hp.output_root) / f"{condition}_{timestamp}"
     
-    # Each generation runs two named stages in sequence.
-    stage_names = ["phoneme_pretrain", "trajectory_training"]
     for gen in range(0, num_generations):
-        # Log the planned stages for readability.
-        print(f"gen={gen}, stages={stage_names}")
+        print("gen=%d, stages=['phoneme_pretrain', 'trajectory_training']" % gen)
         gen_out_dir = run_root / f"gen_{gen}"
         
-        # Stage 1: phoneme pretrain (initialize stage-specific inputs first).
+        # Run phoneme pretraining for this generation.
         embedding_weights = run_phoneme_pretrain(
-            phoneme_dataset=phoneme_dataset,
             hp=hp,
             seed=hp.seed + gen,
+            phoneme_dataset=phoneme_dataset,
             device=device,
             out_dir=gen_out_dir,
         )
         
-        # Stage 2: trajectory training (initialize stage-specific inputs first).
-        run_trajectory_training(
+        # Run trajectory training for this generation.
+        preds_by_gen[gen] = run_trajectory_training(
             hp=hp,
             seed=hp.seed + gen,
-            gen=gen,
-            trajectory_train_dataset=trajectory_train_dataset,
-            trajectory_test_dataset=trajectory_test_dataset,
+            trajectory_dataset=trajectory_dataset,
             model_type=hp.model_type,
             embedding_weights=embedding_weights,
             device=device,
             out_dir=gen_out_dir,
         )
-        pred_path = run_root / f"gen_{gen}" / "predictions.npy"
-        if pred_path.exists():
-            preds_by_gen[gen] = np.load(pred_path)
 
-    # Save mean trajectory drift plots across generations (ignore padded values).
+    # Save the mean trajectory drift plots.
     drift_dir = run_root / "drift_plots"
     drift_dir.mkdir(parents=True, exist_ok=True)
-    item_types = list(trajectory_test_dataset.item_types)
+    item_types = list(trajectory_dataset.item_types)
     unique_types = sorted(set(item_types))
-    targets = trajectory_test_dataset.y_real.numpy()
+    targets = trajectory_dataset.pad_targets(trajectory_dataset.y_real).numpy()
     for idx_type, item_type in enumerate(unique_types):
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
         if not idxs:

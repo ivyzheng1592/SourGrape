@@ -1,6 +1,6 @@
 # SourGrape: Velum Trajectory Mapping
 
-This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`).
+This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`) while always evaluating against the original trajectories (`y_real`).
 
 The main entry point is `iteration.py`, which runs two conditions (`glide`, `fricative`) for 5 generations each.
 
@@ -12,10 +12,13 @@ The main entry point is `iteration.py`, which runs two conditions (`glide`, `fri
    - Saves embedding PCA plot, loss curves, and checkpoints.
 
 2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
-   - Reads `train_meta_file.csv` and `test_meta_file.csv`.
-   - Loads each `.npy` trajectory, pads to `max_trajectory_len`, and (optionally) augments train trajectories.
+   - Reads one metadata file, `meta_file.csv`.
+   - Loads each `.npy` trajectory, stores raw variable-length targets, and pads batches to `max_trajectory_len` during collation.
+   - Builds two dataloaders from the same dataset:
+     - a **training** loader that sees each item `train_repeats_per_epoch` times per epoch in mixed order, with on-the-fly augmentation applied to `y_prev`
+     - a **testing** loader that sees each item once per epoch with no augmentation
    - Trains a word→trajectory model and saves predictions + plots.
-   - Updates `y_prev` in the training set using **test‑set predictions matched by word** (see “Data requirements”).
+   - Updates `y_prev` row-by-row from the final predictions of the current generation.
 
 ## Quick Start
 
@@ -35,11 +38,10 @@ python iteration.py
 
 ## Data Requirements
 
-### 1) Train/Test metadata CSVs
+### 1) Metadata CSV
 `hyper_params.py` expects:
 
-- `dataset/train_meta_file.csv`
-- `dataset/test_meta_file.csv`
+- `dataset/meta_file.csv`
 
 Required columns (the code reads these exact names):
 
@@ -48,7 +50,7 @@ Required columns (the code reads these exact names):
 - `condition`: label used to filter rows (e.g., `glide`, `fricative`).
 - `item_type`: used to group plots.
 
-Note: the CSVs in this repo also include a `word` column; it is currently **not used** by the code.
+Note: the CSV in this repo also includes a `word` column; it is currently **not used** by the code.
 
 **Word length requirement**: all `UR` strings must be **exactly 5 letters**. The dataset encodes `UR` directly into a fixed-size tensor, so any other length will break batching.
 
@@ -56,7 +58,8 @@ Note: the CSVs in this repo also include a `word` column; it is currently **not 
 Each `file_name` should point to a `.npy` file containing a 1D or flattenable trajectory. The raw data may be multi‑dimensional for use in other projects, but **this project flattens it**. The code:
 
 - Flattens each array
-- Pads to `max_trajectory_len` (default `153`) using `trajectory_pad_value` (default `-999.0`)
+- Stores the raw trajectory in the dataset
+- Pads batches to `max_trajectory_len` (default `153`) using `trajectory_pad_value` (default `-999.0`)
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
 ### 3) Phoneme metadata XLSX
@@ -73,12 +76,12 @@ Required columns:
 Note: the character vocabulary is built from the phoneme dataset for each condition, so all characters in `UR` must appear in the phoneme file for that same condition.
 
 
-### 4) Train/Test coupling requirement
-During generation updates, the code maps **test predictions to training items by word**. That means every training `UR` must appear in the **test** CSV. In practice, the training set is **n×** the testing set (n is controlled by how you build the CSVs), and each test `UR` is repeated across the training file. If any training word is missing from test, `run_trajectory_training` will raise:
+### 4) Repeated Training Passes
+The trajectory stage uses a single dataset for both training and testing.
 
-```
-ValueError: Missing prediction for word: ...
-```
+- During **training**, each epoch repeats the full dataset `train_repeats_per_epoch` times (default `20`) in mixed order using a sampler.
+- During **testing**, each epoch iterates over the same dataset once.
+- Because augmentation is applied during batch collation for training only, repeated appearances of the same item can receive different augmented versions of `y_prev` within the same epoch.
 
 ## Configuration
 
@@ -87,7 +90,7 @@ All hyperparameters live in `hyper_params.py`:
 - Model type: `model_type = "lstm"` or `"seq2seq"`
 - Embedding size, hidden size, dropout, etc.
 - Training epochs and learning rates
-- Data paths and padding values
+- Data path, repetition count, and padding values
 - Device (`cpu`/`cuda`)
 
 ## Outputs
@@ -124,12 +127,14 @@ output/<condition>_<timestamp>/
 ## Trajectory Handling Notes
 
 - **Flattening is intentional**: trajectories are flattened so the model predicts a single 1D vector, even if the raw data is multi‑dimensional.
-- **Padding is required**: trajectories are padded to a fixed length. Longer trajectories stop the run by design.
+- **Raw trajectories are stored**: `y_real` and `y_prev` are kept as variable-length trajectories inside the dataset.
+- **Padding is batch-time only**: trajectories are padded to a fixed length during collation and drift plotting. Longer trajectories stop the run by design.
 - **Loss masking**: training and evaluation loss ignore padded values using `trajectory_pad_value`.
-- **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions), while evaluation uses `y_real` (original targets).
+- **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
+- **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 
 ## Other Notes
 
 - Phoneme pretraining embeddings are passed into the trajectory model and frozen by default.
-- Augmentation is enabled for training trajectories by default (`augment=True`).
+- Train-time trajectory augmentation is applied on the fly during batch collation, not when the dataset is first loaded.
 - Phoneme targets can be perturbed with Gaussian noise when building the dataset (`augment=True`).

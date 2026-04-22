@@ -11,12 +11,12 @@ class HyperParams:
     # Dataset configuration for phoneme and trajectory stages.
     phoneme_data_path: str = "dataset/phoneme_target_file.xlsx"
     data_split_ratio = [0.8, 0.2]
-    train_data_path: str = "dataset/train_meta_file.csv"
-    test_data_path: str = "dataset/test_meta_file.csv"
+    data_path: str = "dataset/meta_file.csv"
     npy_root: str = "/mnt/storage/ldl_linguistics/SourGrape/token_npy"
     trajectory_pad_value: float = -999.0  # Padding value for trajectories.
     max_trajectory_len: int = 153
     pad_token_id: int = 0
+    train_repeats_per_epoch: int = 20
 
     # Pretraining configuration.
     pretrain_epochs: int = 5
