@@ -4,7 +4,7 @@ nasal_fri_token,nasal_fri,SGn-A,fricative,nasal_fri_token_pen.npy
 nasal_fri_token,nasal_fri,SGn-B,fricative,nasal_fri_token_pen.npy
 oral_fri_token,oral_fri,HAo,fricative,oral_fri_token_pen.npy
 oral_fri_token,oral_fri,SGo,fricative,oral_fri_token_pen.npy
-nasal_gli_token,nasal_gli,Han,glide,nasal_gli_token_pen.npy
+nasal_gli_token,nasal_gli,HAn,glide,nasal_gli_token_pen.npy
 nasal_gli_token,nasal_gli,SGn-A,glide,nasal_gli_token_pen.npy
 nasal_gli_token,nasal_gli,SGn-B,glide,nasal_gli_token_pen.npy
 oral_gli_token,oral_gli,HAo,glide,oral_gli_token_pen.npy
