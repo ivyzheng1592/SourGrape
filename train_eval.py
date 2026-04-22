@@ -38,13 +38,14 @@ def train_one_epoch(
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
             aux_loss = aux_loss_fn(preds, penalty_targets)
-        loss = main_loss + aux_loss_weight * aux_loss
+        weighted_aux_loss = aux_loss_weight * aux_loss
+        loss = main_loss + weighted_aux_loss
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item()
         main_loss_total += main_loss.item()
-        aux_loss_total += aux_loss.item()
+        aux_loss_total += weighted_aux_loss.item()
 
     num_batches = max(len(dataloader), 1)
     return (
@@ -85,10 +86,11 @@ def eval_one_epoch(
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
             aux_loss = aux_loss_fn(preds, penalty_targets)
-        loss = main_loss + aux_loss_weight * aux_loss
+        weighted_aux_loss = aux_loss_weight * aux_loss
+        loss = main_loss + weighted_aux_loss
         total_loss += loss.item()
         main_loss_total += main_loss.item()
-        aux_loss_total += aux_loss.item()
+        aux_loss_total += weighted_aux_loss.item()
 
     num_batches = max(len(dataloader), 1)
     return (
@@ -130,10 +132,11 @@ def eval_last_epoch(
             # Add the penalty loss to the trajectory loss.
             penalty_targets = batch["penalty_target"].to(device)
             aux_loss = aux_loss_fn(preds, penalty_targets)
-        loss = main_loss + aux_loss_weight * aux_loss
+        weighted_aux_loss = aux_loss_weight * aux_loss
+        loss = main_loss + weighted_aux_loss
         total_loss += loss.item()
         main_loss_total += main_loss.item()
-        aux_loss_total += aux_loss.item()
+        aux_loss_total += weighted_aux_loss.item()
         preds_all.append(preds.cpu())
 
     pred_matrix = torch.cat(preds_all, dim=0)
