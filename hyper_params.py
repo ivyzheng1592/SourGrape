@@ -29,7 +29,7 @@ class HyperParams:
 
     # Pretraining configuration.
     pretrain_epochs: int = 25
-    pretrain_lr: float = 1e-4
+    pretrain_lr: float = 5e-4
 
     # Training configuration.
     batch_size: int = 16
