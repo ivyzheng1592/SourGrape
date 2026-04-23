@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import asdict
 
 import numpy as np
 import torch
@@ -108,7 +109,7 @@ def run_trajectory_training(
     device: torch.device,
     out_dir: Path,
     resume_path: str = "",
-) -> np.ndarray:
+) -> list[torch.Tensor]:
     # Reproducibility.
     torch.manual_seed(seed)
 
@@ -333,7 +334,20 @@ def run_generations(
     
     # Output folder for all generations in this run.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_root = Path(hp.output_root) / f"{condition}_seed{hp.seed}_{timestamp}"
+    run_root = Path(hp.output_root) / f"{condition}_{timestamp}"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    # Save the run arguments and hyperparameters.
+    run_config_path = run_root / "run_config.txt"
+    with open(run_config_path, "w", encoding="utf-8") as f:
+        f.write("[parsed_args]\n")
+        f.write(f"seed = {seed}\n")
+        f.write(f"condition = {condition}\n")
+        f.write(f"num_generations = {num_generations}\n")
+        f.write(f"stage = {stage}\n\n")
+        f.write("[hyperparameters]\n")
+        for key, value in asdict(hp).items():
+            f.write(f"{key} = {value}\n")
     
     for gen in range(0, num_generations):
         print("gen=%d, stage=%s" % (gen, stage))

@@ -189,8 +189,6 @@ class SourGrapeDataset(Dataset):
 
     def update_prev_targets(self, y_prev: torch.Tensor) -> None:
         # Update y_prev with the predicted trajectories.
-        if y_prev.shape[0] != len(self.y_prev):
-            raise ValueError("y_prev must have the same number of rows as the dataset.")
         y_prev = y_prev.detach().cpu()
         self.y_prev = [
             y_prev[idx, : len(self.y_real[idx])].clone() for idx in range(len(self.y_real))
