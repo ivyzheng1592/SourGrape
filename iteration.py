@@ -164,11 +164,11 @@ def run_trajectory_training(
         preds: torch.Tensor,
         penalty_targets: torch.Tensor,
     ) -> torch.Tensor:
-        pred_activity = torch.sigmoid(
+        pred_activity = torch.relu(
             hp.penalty_sigmoid_scale * (preds - hp.penalty_threshold)
         )
         weight = penalty_targets != hp.trajectory_pad_value
-        return F.binary_cross_entropy(
+        return F.mse_loss(
             pred_activity[weight],
             penalty_targets[weight],
             reduction="sum",

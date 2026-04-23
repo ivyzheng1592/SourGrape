@@ -25,7 +25,7 @@ class HyperParams:
     # Penalty loss configuration.
     penalty_loss_weight: float = 0.5
     penalty_threshold: float = 0.1  # Treat trajectory values above this as nasal activity.
-    penalty_sigmoid_scale: float = 40.0  # Increase this to make the threshold sharper; decrease it to make the penalty signal softer.
+    penalty_sigmoid_scale: float = 5.0  # Increase this to make the threshold sharper; decrease it to make the penalty signal softer.
 
     # Pretraining configuration.
     pretrain_epochs: int = 25
@@ -37,6 +37,6 @@ class HyperParams:
     lr: float = 1e-4
     model_type: str = "lstm"  # "lstm" or "seq2seq"
     embed_size: int = 2
-    hidden_size: int = 8
+    hidden_size: int = 16
     num_layers: int = 1
     dropout: float = 0.5
