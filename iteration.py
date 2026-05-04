@@ -157,20 +157,22 @@ def run_trajectory_training(
     # Optimization setup.
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
     def loss_fn(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        weight = (targets != hp.trajectory_pad_value).to(targets.dtype)
-        return F.mse_loss(preds, targets, reduction="sum", weight=weight)
+        # Ignore padded trajectory positions.
+        mask = targets != hp.trajectory_pad_value
+        return F.mse_loss(preds[mask], targets[mask], reduction="sum")
 
     def penalty_loss_fn(
         preds: torch.Tensor,
         penalty_targets: torch.Tensor,
     ) -> torch.Tensor:
-        pred_activity = torch.relu(
+        pred_activity = torch.sigmoid(
             hp.penalty_sigmoid_scale * (preds - hp.penalty_threshold)
         )
-        weight = penalty_targets != hp.trajectory_pad_value
-        return F.mse_loss(
-            pred_activity[weight],
-            penalty_targets[weight],
+        # Keep only positive penalty targets.
+        mask = penalty_targets == 1
+        return F.binary_cross_entropy(
+            pred_activity[mask],
+            penalty_targets[mask],
             reduction="sum",
         )
 
