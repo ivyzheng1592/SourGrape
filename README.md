@@ -2,7 +2,7 @@
 
 This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`) while always evaluating against the original trajectories (`y_real`).
 
-The command-line entry point is `main.py`, which can run one or both conditions (`glide`, `fricative`) for a chosen number of generations.
+The command-line entry point is `main.py`, which runs both conditions (`glide`, `fricative`) for a chosen number of iterations and generations.
 
 ## What The Code Does
 
@@ -39,17 +39,23 @@ pip install -r requirements.txt
 python main.py --seed 42
 ```
 
-To run a specific condition or change the number of generations:
+To change the number of generations:
 
 ```bash
-python main.py --condition glide --generations 3 --seed 42
+python main.py --generations 3 --seed 42
 ```
 
 To run only one stage:
 
 ```bash
-python main.py --condition glide --stage pretrain --seed 42
-python main.py --condition glide --stage train --seed 42
+python main.py --stage pretrain --seed 42
+python main.py --stage train --seed 42
+```
+
+To override model and penalty-loss settings:
+
+```bash
+python main.py --model-type seq2seq --penalty-loss-type relu_mse --penalty-loss-weight 1.0
 ```
 
 ## Data Requirements
@@ -75,7 +81,7 @@ Each `file_name` should point to a `.npy` file containing a 1D or flattenable tr
 
 - Flattens each array
 - Stores the raw trajectory in the dataset
-- Pads batches to `max_trajectory_len` (default `153`) using `trajectory_pad_value` (default `-999.0`)
+- Pads batches to `max_trajectory_len` (default `153`) using `padding_value` (default `-999.0`)
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
 ### 3) Phoneme metadata XLSX
@@ -125,23 +131,34 @@ All hyperparameters live in `hyper_params.py`:
 
 ## Outputs
 
-Each run writes to:
+Each call to `run_iterations()` writes to:
 
 ```
-output/<condition>_seed<seed>_<timestamp>/
-  gen_<n>/
-    pretrain_models/
-    pretrain_history.csv
-    pretrain_loss_curve.png
-    embedding_pca.png
-    models/
-    history.csv
-    loss_curve.png
-    predictions.npy
-    prediction_vs_target_<item_type>.png
-  drift_plots/
-    mean_drift_<item_type>.png
-    loss_drift.png
+output/iterations_<timestamp>/
+  run_config.txt
+  iteration_0/
+    glide_gen_0/
+      pretrain_models/
+      pretrain_history.csv
+      pretrain_loss_curve.png
+      embedding_pca.png
+      models/
+      history.csv
+      loss_curve.png
+      predictions.npy
+      prediction_vs_target_<item_type>.png
+    fricative_gen_0/
+      ...
+    glide_summary/
+      mean_drift_<item_type>.png
+      loss_drift.png
+      preds_by_generation.csv
+    fricative_summary/
+      mean_drift_<item_type>.png
+      loss_drift.png
+      preds_by_generation.csv
+  iteration_1/
+    ...
 ```
 
 If `--stage pretrain` is used, the run only writes pretraining artifacts.
@@ -163,7 +180,7 @@ If `--stage train` is used, the run skips phoneme pretraining and trains the tra
 - **Flattening is intentional**: trajectories are flattened so the model predicts a single 1D vector, even if the raw data is multi‑dimensional.
 - **Raw trajectories are stored**: `y_real` and `y_prev` are kept as variable-length trajectories inside the dataset.
 - **Padding is batch-time only**: trajectories are padded to a fixed length during collation and drift plotting. Longer trajectories stop the run by design.
-- **Loss masking**: training and evaluation loss ignore padded values using `trajectory_pad_value`.
+- **Loss masking**: training and evaluation loss ignore padded values using `padding_value`.
 - **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Drift plots include variability**: the mean trajectory drift plot shows mean trajectories with SD bands for the target and each generation.

@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset, Sampler
 
-from hyper_params import HyperParams
+import hyper_params as hp
 from preprocessing import add_noise, augment_trajectory_variable_length
 
 
@@ -63,11 +63,11 @@ class SourGrapeDataset(Dataset):
         vocab: Vocab,
         condition: str,
         trajectory_data_path: str,
-        trajectory_npy_root: str = HyperParams().trajectory_npy_root,
-        penalty_data_path: str = HyperParams().penalty_data_path,
-        penalty_npy_root: str = HyperParams().penalty_npy_root,
-        padding_value: float = HyperParams().padding_value,
-        max_trajectory_len: int = HyperParams().max_trajectory_len,
+        trajectory_npy_root: str = hp.trajectory_npy_root,
+        penalty_data_path: str = hp.penalty_data_path,
+        penalty_npy_root: str = hp.penalty_npy_root,
+        padding_value: float = hp.padding_value,
+        max_trajectory_len: int = hp.max_trajectory_len,
     ) -> None:
         # Load the metadata for this condition.
         df = self._load_metadata(trajectory_data_path, condition)
@@ -244,7 +244,7 @@ class PhonemeDataset(Dataset):
         # Build the phoneme vocabulary.
         self.vocab = Vocab.build_vocab(
             symbols=self.phonemes,
-            pad_id=HyperParams().padding_id,
+            pad_id=hp.padding_id,
         )
 
     def __len__(self) -> int:

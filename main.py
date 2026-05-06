@@ -1,6 +1,7 @@
 import argparse
 
-from iteration import run_generations
+import hyper_params as hp
+from iteration import run_iterations
 
 
 def parse_args() -> argparse.Namespace:
@@ -10,44 +11,59 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=hp.seed,
         help="Set the base random seed for the run.",
     )
     parser.add_argument(
-        "--condition",
-        choices=["glide", "fricative", "all"],
-        default="all",
-        help="Select which condition to run.",
+        "--iterations",
+        type=int,
+        default=hp.iterations,
+        help="Set the number of full multi-condition runs to execute.",
     )
     parser.add_argument(
         "--generations",
         type=int,
-        default=5,
+        default=hp.generations,
         help="Set the number of generations to run for each condition.",
     )
     parser.add_argument(
         "--stage",
         choices=["all", "pretrain", "train"],
-        default="all",
+        default=hp.stage,
         help="Select which stage to run.",
     )
+    parser.add_argument(
+        "--model-type",
+        choices=["lstm", "seq2seq"],
+        default=None,
+        help="Override the trajectory model type.",
+    )
+    parser.add_argument(
+        "--penalty-loss-type",
+        choices=["sigmoid_bce", "relu_mse", "softplus_mse"],
+        default=None,
+        help="Override the auxiliary penalty loss type.",
+    )
+    parser.add_argument(
+        "--penalty-loss-weight",
+        type=float,
+        default=None,
+        help="Override the auxiliary penalty loss weight.",
+    )
     return parser.parse_args()
-
-
 def main() -> None:
     args = parse_args()
-    if args.condition == "all":
-        conditions = ["glide", "fricative"]
-    else:
-        conditions = [args.condition]
-
-    for condition in conditions:
-        run_generations(
-            seed=args.seed,
-            condition=condition,
-            num_generations=args.generations,
-            stage=args.stage,
-        )
+    hp.seed = args.seed
+    hp.iterations = args.iterations
+    hp.generations = args.generations
+    hp.stage = args.stage
+    if args.model_type is not None:
+        hp.model_type = args.model_type
+    if args.penalty_loss_type is not None:
+        hp.penalty_loss_type = args.penalty_loss_type
+    if args.penalty_loss_weight is not None:
+        hp.penalty_loss_weight = args.penalty_loss_weight
+    run_iterations()
 
 
 if __name__ == "__main__":

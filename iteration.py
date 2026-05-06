@@ -1,12 +1,11 @@
 from pathlib import Path
-from dataclasses import asdict
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-from hyper_params import HyperParams
+import hyper_params as hp
 from dataset import RepeatShuffleSampler, SourGrapeDataset, PhonemeDataset
 from model import LSTMRegressor, Seq2SeqRegressor, PhonemeRegressor
 from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
@@ -21,7 +20,6 @@ from datetime import datetime
 
 
 def run_phoneme_pretrain(
-    hp: HyperParams,
     seed: int,
     phoneme_dataset: PhonemeDataset,
     device: torch.device,
@@ -101,7 +99,6 @@ def run_phoneme_pretrain(
 
 
 def run_trajectory_training(
-    hp: HyperParams,
     seed: int,
     trajectory_dataset: SourGrapeDataset,
     embedding_weights: torch.Tensor | None,
@@ -314,22 +311,15 @@ def run_trajectory_training(
 
 
 def run_generations(
-    seed: int | None = None,
+    iteration_root: Path,
+    seed: int = hp.seed,
     condition: str = "glide",
-    num_generations: int = 5,
-    stage: str = "all",
+    num_generations: int = hp.generations,
+    stage: str = hp.stage,
+    device: torch.device = torch.device(hp.device),
 ) -> None:
-    # Train multiple generations with different random seeds.
-    hp = HyperParams()
-    if seed is not None:
-        hp.seed = seed
-
-    # Select device.
-    if hp.device == "cuda" and not torch.cuda.is_available():
-        print("CUDA requested but not available; falling back to CPU.")
-        device = torch.device("cpu")
-    else:
-        device = torch.device(hp.device)
+    # Run one full generation chain for a single condition.
+    iteration_seed = seed
     
     # Load the phoneme dataset for the pretraining stage.
     phoneme_dataset = PhonemeDataset(
@@ -352,33 +342,16 @@ def run_generations(
     # Store the predictions from each generation.
     preds_by_gen = {}
     
-    # Output folder for all generations in this run.
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_root = Path(hp.output_root) / f"{condition}_{timestamp}"
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    # Save the run arguments and hyperparameters.
-    run_config_path = run_root / "run_config.txt"
-    with open(run_config_path, "w", encoding="utf-8") as f:
-        f.write("[parsed_args]\n")
-        f.write(f"seed = {seed}\n")
-        f.write(f"condition = {condition}\n")
-        f.write(f"num_generations = {num_generations}\n")
-        f.write(f"stage = {stage}\n\n")
-        f.write("[hyperparameters]\n")
-        for key, value in asdict(hp).items():
-            f.write(f"{key} = {value}\n")
-    
     for gen in range(0, num_generations):
-        print("gen=%d, stage=%s" % (gen, stage))
-        gen_out_dir = run_root / f"gen_{gen}"
+        generation_seed = iteration_seed + gen
+        print(f"gen={gen}, stage={stage}, seed={generation_seed}")
+        gen_out_dir = iteration_root / f"{condition}_gen_{gen}"
         embedding_weights = None
 
         if stage in {"all", "pretrain"}:
             # Run phoneme pretraining for this generation.
             embedding_weights = run_phoneme_pretrain(
-                hp=hp,
-                seed=hp.seed + gen,
+                seed=generation_seed,
                 phoneme_dataset=phoneme_dataset,
                 device=device,
                 out_dir=gen_out_dir,
@@ -387,8 +360,7 @@ def run_generations(
         if stage in {"all", "train"}:
             # Run trajectory training for this generation.
             preds_by_gen[gen] = run_trajectory_training(
-                hp=hp,
-                seed=hp.seed + gen,
+                seed=generation_seed,
                 trajectory_dataset=trajectory_dataset,
                 embedding_weights=embedding_weights,
                 device=device,
@@ -398,11 +370,12 @@ def run_generations(
     if not preds_by_gen:
         return
 
-    # Save the mean trajectory drift plots.
-    drift_dir = run_root / "drift_plots"
-    drift_dir.mkdir(parents=True, exist_ok=True)
+    # Save the condition summary artifacts.
+    summary_dir = iteration_root / f"{condition}_summary"
+    summary_dir.mkdir(parents=True, exist_ok=True)
     item_types = list(trajectory_dataset.item_types)
     unique_types = sorted(set(item_types))
+    words = trajectory_dataset.words
     targets = trajectory_dataset.pad_targets(trajectory_dataset.y_real).numpy()
     for idx_type, item_type in enumerate(unique_types):
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
@@ -426,13 +399,26 @@ def run_generations(
         safe_type = "".join(ch for ch in str(item_type) if ch.isalnum() or ch in "_-")
         if not safe_type:
             safe_type = f"type_{idx_type}"
-        out_path = drift_dir / f"mean_drift_{safe_type}.png"
+        out_path = summary_dir / f"mean_drift_{safe_type}.png"
         save_mean_trajectory_drift(stats_by_gen, str(out_path))
+
+    # Save all generation predictions in one CSV file.
+    preds_csv_path = summary_dir / "preds_by_generation.csv"
+    with open(preds_csv_path, "w", encoding="utf-8") as f:
+        max_len = max(len(target) for target in trajectory_dataset.y_real)
+        timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
+        f.write(f"generation,item_index,word,item_type,{timestep_cols}\n")
+        for gen, preds in preds_by_gen.items():
+            for idx, pred in enumerate(preds):
+                valid_pred = pred[: len(trajectory_dataset.y_real[idx])]
+                padded_pred = list(valid_pred) + [""] * (max_len - len(valid_pred))
+                pred_values = ",".join(str(value) for value in padded_pred)
+                f.write(f"{gen},{idx},{words[idx]},{item_types[idx]},{pred_values}\n")
 
     # Save loss drift plot across generations.
     history_by_gen = {}
     for gen in range(0, num_generations):
-        history_path = run_root / f"gen_{gen}" / "history.csv"
+        history_path = iteration_root / f"{condition}_gen_{gen}" / "history.csv"
         if not history_path.exists():
             continue
         train_loss = []
@@ -449,5 +435,56 @@ def run_generations(
                 elif subset == "test":
                     test_loss.append(float(loss_str))
         history_by_gen[gen] = {"train_loss": train_loss, "test_loss": test_loss}
-    loss_drift_path = drift_dir / "loss_drift.png"
+    loss_drift_path = summary_dir / "loss_drift.png"
     save_loss_drift(history_by_gen, str(loss_drift_path))
+
+
+def run_iterations(
+    seed: int = hp.seed,
+    num_iterations: int = hp.iterations,
+    num_generations: int = hp.generations,
+    stage: str = hp.stage,
+) -> None:
+    # Select the device for this call.
+    if hp.device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available; falling back to CPU.")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(hp.device)
+
+    # Create the output folder for this call.
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_root = Path(hp.output_root) / f"iterations_{timestamp}"
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    # Save the run arguments and hyperparameters.
+    run_config_path = run_root / "run_config.txt"
+    with open(run_config_path, "w", encoding="utf-8") as f:
+        f.write("[parsed_args]\n")
+        f.write(f"seed = {seed}\n")
+        f.write(f"num_iterations = {num_iterations}\n")
+        f.write(f"num_generations = {num_generations}\n")
+        f.write(f"stage = {stage}\n\n")
+        f.write("[hyperparameters]\n")
+        for key, value in vars(hp).items():
+            if key.startswith("_") or callable(value):
+                continue
+            f.write(f"{key} = {value}\n")
+
+    # Run all iterations.
+    for iteration in range(num_iterations):
+        iteration_seed = seed + iteration * num_generations
+        print(f"iteration={iteration}, seed={iteration_seed}")
+        iteration_root = run_root / f"iteration_{iteration}"
+        iteration_root.mkdir(parents=True, exist_ok=True)
+
+        # Run all conditions for this iteration.
+        for condition in hp.conditions:
+            run_generations(
+                iteration_root=iteration_root,
+                seed=iteration_seed,
+                condition=condition,
+                num_generations=num_generations,
+                stage=stage,
+                device=device,
+            )

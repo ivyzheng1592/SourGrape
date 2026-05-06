@@ -1,14 +1,14 @@
 import torch
 from torch import nn
 
-from hyper_params import HyperParams
+import hyper_params as hp
 
 
 class PhonemeRegressor(nn.Module):
     def __init__(
         self,
         vocab_size: int,
-        embed_size: int = HyperParams().embed_size,
+        embed_size: int = hp.embed_size,
     ) -> None:
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_size, padding_idx=0)
@@ -29,10 +29,10 @@ class LSTMRegressor(nn.Module):
         self,
         input_size: int,
         output_size: int,
-        embed_size: int = HyperParams().embed_size,
-        hidden_size: int = HyperParams().hidden_size,
-        num_layers: int = HyperParams().num_layers,
-        dropout: float = HyperParams().dropout,
+        embed_size: int = hp.embed_size,
+        hidden_size: int = hp.hidden_size,
+        num_layers: int = hp.num_layers,
+        dropout: float = hp.dropout,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
     ) -> None:
@@ -42,13 +42,13 @@ class LSTMRegressor(nn.Module):
             self.embedding = nn.Embedding(
                 input_size,
                 embed_size,
-                padding_idx=HyperParams().padding_id,
+                padding_idx=hp.padding_id,
             )
         else:
             self.embedding = nn.Embedding.from_pretrained(
                 embedding_weights,
                 freeze=freeze_embedding,
-                padding_idx=HyperParams().padding_id,
+                padding_idx=hp.padding_id,
             )
         # PyTorch applies dropout between LSTM layers only when num_layers > 1.
         lstm_dropout = dropout if num_layers > 1 else 0.0
@@ -110,15 +110,15 @@ class Seq2SeqRegressor(nn.Module):
         self,
         input_size: int,
         output_len: int,
-        embed_size: int = HyperParams().embed_size,
-        hidden_size: int = HyperParams().hidden_size,
-        num_layers: int = HyperParams().num_layers,
-        dropout: float = HyperParams().dropout,
+        embed_size: int = hp.embed_size,
+        hidden_size: int = hp.hidden_size,
+        num_layers: int = hp.num_layers,
+        dropout: float = hp.dropout,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
-        padding_id: int = HyperParams().padding_id,
-        padding_value: float = HyperParams().padding_value,
-        teacher_forcing_ratio: float = HyperParams().teacher_forcing_ratio,
+        padding_id: int = hp.padding_id,
+        padding_value: float = hp.padding_value,
+        teacher_forcing_ratio: float = hp.teacher_forcing_ratio,
     ) -> None:
         super().__init__()
         self.output_len = output_len
@@ -131,13 +131,13 @@ class Seq2SeqRegressor(nn.Module):
             self.embedding = nn.Embedding(
                 input_size,
                 embed_size,
-                padding_idx=HyperParams().padding_id,
+                padding_idx=hp.padding_id,
             )
         else:
             self.embedding = nn.Embedding.from_pretrained(
                 embedding_weights,
                 freeze=freeze_embedding,
-                padding_idx=HyperParams().padding_id,
+                padding_idx=hp.padding_id,
             )
         # Encode the input sequence.
         self.encoder = nn.LSTM(
