@@ -66,7 +66,7 @@ class SourGrapeDataset(Dataset):
         trajectory_npy_root: str = HyperParams().trajectory_npy_root,
         penalty_data_path: str = HyperParams().penalty_data_path,
         penalty_npy_root: str = HyperParams().penalty_npy_root,
-        trajectory_pad_value: float = HyperParams().trajectory_pad_value,
+        padding_value: float = HyperParams().padding_value,
         max_trajectory_len: int = HyperParams().max_trajectory_len,
     ) -> None:
         # Load the metadata for this condition.
@@ -75,7 +75,7 @@ class SourGrapeDataset(Dataset):
         
         # Store the dataset item types.
         self.item_types = df["item_type"].tolist()
-        self.pad_value = trajectory_pad_value
+        self.pad_value = padding_value
         self.max_trajectory_len = max_trajectory_len
         penalty_file_by_item_type = {
             row["item_type"]: row["file_name"]
@@ -244,7 +244,7 @@ class PhonemeDataset(Dataset):
         # Build the phoneme vocabulary.
         self.vocab = Vocab.build_vocab(
             symbols=self.phonemes,
-            pad_id=HyperParams().pad_token_id,
+            pad_id=HyperParams().padding_id,
         )
 
     def __len__(self) -> int:

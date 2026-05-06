@@ -104,7 +104,6 @@ def run_trajectory_training(
     hp: HyperParams,
     seed: int,
     trajectory_dataset: SourGrapeDataset,
-    model_type: str,
     embedding_weights: torch.Tensor | None,
     device: torch.device,
     out_dir: Path,
@@ -138,7 +137,7 @@ def run_trajectory_training(
     )
 
     # Model selection.
-    if model_type == "seq2seq":
+    if hp.model_type == "seq2seq":
         model = Seq2SeqRegressor(
             input_size=len(trajectory_dataset.vocab.char_to_id),
             output_len=trajectory_dataset.max_trajectory_len,
@@ -158,23 +157,42 @@ def run_trajectory_training(
     optimizer = torch.optim.Adam(model.parameters(), lr=hp.lr)
     def loss_fn(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         # Ignore padded trajectory positions.
-        mask = targets != hp.trajectory_pad_value
+        mask = targets != hp.padding_value
         return F.mse_loss(preds[mask], targets[mask], reduction="sum")
 
     def penalty_loss_fn(
         preds: torch.Tensor,
         penalty_targets: torch.Tensor,
     ) -> torch.Tensor:
-        pred_activity = torch.sigmoid(
-            hp.penalty_sigmoid_scale * (preds - hp.penalty_threshold)
-        )
         # Keep only positive penalty targets.
         mask = penalty_targets == 1
-        return F.binary_cross_entropy(
-            pred_activity[mask],
-            penalty_targets[mask],
-            reduction="sum",
-        )
+        if hp.penalty_loss_type == "sigmoid_bce":
+            pred_activity = torch.sigmoid(
+                hp.penalty_scale * (preds - hp.penalty_threshold)
+            )
+            return F.binary_cross_entropy(
+                pred_activity[mask],
+                penalty_targets[mask],
+                reduction="sum",
+            )
+        if hp.penalty_loss_type == "relu_mse":
+            pred_activity = torch.relu(
+                hp.penalty_scale * (preds - hp.penalty_threshold)
+            )
+            return F.mse_loss(
+                pred_activity[mask],
+                penalty_targets[mask],
+                reduction="sum",
+            )
+        if hp.penalty_loss_type == "softplus_mse":
+            pred_activity = F.softplus(
+                hp.penalty_scale * (preds - hp.penalty_threshold)
+            )
+            return F.mse_loss(
+                pred_activity[mask],
+                penalty_targets[mask],
+                reduction="sum",
+            )
 
     # Optionally resume from a checkpoint.
     if resume_path:
@@ -372,7 +390,6 @@ def run_generations(
                 hp=hp,
                 seed=hp.seed + gen,
                 trajectory_dataset=trajectory_dataset,
-                model_type=hp.model_type,
                 embedding_weights=embedding_weights,
                 device=device,
                 out_dir=gen_out_dir,
@@ -393,7 +410,7 @@ def run_generations(
             continue
         stats_by_gen = {}
         targets_subset = targets[idxs]
-        mask = targets_subset != hp.trajectory_pad_value
+        mask = targets_subset != hp.padding_value
         for gen, preds in preds_by_gen.items():
             preds_subset = preds[idxs]
             masked = np.where(mask, preds_subset, np.nan)

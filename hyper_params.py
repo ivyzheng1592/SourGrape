@@ -17,15 +17,16 @@ class HyperParams:
 
     # Dataset configuration.
     pretrain_data_split_ratio = [0.8, 0.2]
-    trajectory_pad_value: float = -999.0  # Padding value for trajectories.
-    max_trajectory_len: int = 153
-    pad_token_id: int = 0
     train_repeats_per_epoch: int = 20
+    max_trajectory_len: int = 153
+    padding_value: float = -999.0  # Padding value for trajectories.
+    padding_id: int = 0
 
     # Penalty loss configuration.
+    penalty_loss_type: str = "sigmoid_bce"  # "sigmoid_bce", "relu_mse", or "softplus_mse"
     penalty_loss_weight: float = 0.5
     penalty_threshold: float = 0.1  # Treat trajectory values above this as nasal activity.
-    penalty_sigmoid_scale: float = 5.0  # Increase this to make the threshold sharper; decrease it to make the penalty signal softer.
+    penalty_scale: float = 5.0  # Increase this to make the threshold sharper; decrease it to make the penalty signal softer.
 
     # Pretraining configuration.
     pretrain_epochs: int = 25
@@ -40,3 +41,4 @@ class HyperParams:
     hidden_size: int = 16
     num_layers: int = 1
     dropout: float = 0.5
+    teacher_forcing_ratio: float = 0.5

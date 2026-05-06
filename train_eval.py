@@ -31,7 +31,7 @@ def train_one_epoch(
         else:
             # Train the trajectory model on y_prev.
             targets = batch["y_prev"].to(device)
-        preds = model(x)
+        preds = model(x, targets=targets)
         main_loss = loss_fn(preds, targets)
         aux_loss = torch.tensor(0.0, device=device)
         if aux_loss_fn is not None and training_type != "pretrain":
