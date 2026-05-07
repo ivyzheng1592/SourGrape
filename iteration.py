@@ -12,9 +12,9 @@ from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
 from utils import (
     save_loss_plot,
     save_prediction_plot,
-    save_mean_trajectory_drift,
+    save_trajectory_drift,
     save_loss_drift,
-    save_embedding_pca,
+    save_embedding_plot,
 )
 from datetime import datetime
 
@@ -24,7 +24,7 @@ def run_phoneme_pretrain(
     phoneme_dataset: PhonemeDataset,
     device: torch.device,
     out_dir: Path,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, list[tuple[int, str, float]]]:
     # Reproducibility for the pretraining stage.
     torch.manual_seed(seed)
 
@@ -59,6 +59,7 @@ def run_phoneme_pretrain(
         "train_loss": [],
         "test_loss": [],
     }
+    history_rows = []
     for epoch in range(1, hp.pretrain_epochs + 1):
         train_loss, _, _ = train_one_epoch(
             model, train_loader, optimizer, device, loss_fn, training_type="pretrain"
@@ -68,6 +69,8 @@ def run_phoneme_pretrain(
         )
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
+        history_rows.append((epoch, "train", train_loss))
+        history_rows.append((epoch, "test", test_loss))
         print(
             f"pretrain_epoch={epoch}, train_loss={train_loss:.6f}, "
             f"test_loss={test_loss:.6f}"
@@ -77,25 +80,16 @@ def run_phoneme_pretrain(
             ckpt_path = model_dir / f"pretrain_epoch_{epoch:03d}.pt"
             torch.save(model.state_dict(), ckpt_path)
 
-    # Save PCA plot of embedding weights from the pretraining stage.
+    # Save the pretraining embedding plot.
     emb = model.embedding.weight.detach().cpu().numpy()
-    pca_path = out_dir / "embedding_pca.png"
-    save_embedding_pca(emb, phoneme_dataset.vocab.id_to_char, str(pca_path))
+    embedding_path = out_dir / "pretrain_embedding.png"
+    save_embedding_plot(emb, phoneme_dataset.vocab.id_to_char, str(embedding_path))
 
     # Save a single loss plot for the pretraining stage.
     loss_plot_path = out_dir / "pretrain_loss_curve.png"
     save_loss_plot(history, str(loss_plot_path))
 
-    # Save pretraining history as CSV.
-    history_path = out_dir / "pretrain_history.csv"
-    with open(history_path, "w", encoding="utf-8") as f:
-        f.write("epoch,subset,loss\n")
-        for epoch, loss in enumerate(history["train_loss"], start=1):
-            f.write(f"{epoch},train,{loss}\n")
-        for epoch, loss in enumerate(history["test_loss"], start=1):
-            f.write(f"{epoch},test,{loss}\n")
-
-    return model.embedding.weight.detach().cpu()
+    return model.embedding.weight.detach().cpu(), history_rows
 
 
 def run_trajectory_training(
@@ -105,7 +99,7 @@ def run_trajectory_training(
     device: torch.device,
     out_dir: Path,
     resume_path: str = "",
-) -> list[torch.Tensor]:
+) -> tuple[np.ndarray, list[tuple[int, str, float, float, float]]]:
     # Reproducibility.
     torch.manual_seed(seed)
 
@@ -293,21 +287,13 @@ def run_trajectory_training(
         )
         target = trajectory_dataset[idx]["y_real"].tolist()
         prediction = preds[idx, : len(target)].tolist()
-        pred_path = out_dir / f"prediction_vs_target_{item_type}.png"
+        pred_path = out_dir / f"prediction_{item_type}.png"
         save_prediction_plot(word, target, prediction, str(pred_path))
         seen_types.add(item_type)
         if len(seen_types) >= 5:
             break
 
-    # Save training history as CSV.
-    history_path = out_dir / "history.csv"
-    with open(history_path, "w", encoding="utf-8") as f:
-        f.write("epoch,subset,loss,main_loss,penalty_loss\n")
-        for epoch, subset, loss, main_loss, penalty_loss in history_rows:
-            f.write(f"{epoch},{subset},{loss},{main_loss},{penalty_loss}\n")
-    np.save(out_dir / "predictions.npy", preds.numpy())
-    
-    return preds.numpy()
+    return preds.numpy(), history_rows
 
 
 def run_generations(
@@ -341,6 +327,8 @@ def run_generations(
     
     # Store the predictions from each generation.
     preds_by_gen = {}
+    pretrain_history_by_gen = {}
+    train_history_by_gen = {}
     
     for gen in range(0, num_generations):
         generation_seed = iteration_seed + gen
@@ -350,7 +338,7 @@ def run_generations(
 
         if stage in {"all", "pretrain"}:
             # Run phoneme pretraining for this generation.
-            embedding_weights = run_phoneme_pretrain(
+            embedding_weights, pretrain_history_by_gen[gen] = run_phoneme_pretrain(
                 seed=generation_seed,
                 phoneme_dataset=phoneme_dataset,
                 device=device,
@@ -359,7 +347,7 @@ def run_generations(
 
         if stage in {"all", "train"}:
             # Run trajectory training for this generation.
-            preds_by_gen[gen] = run_trajectory_training(
+            preds_by_gen[gen], train_history_by_gen[gen] = run_trajectory_training(
                 seed=generation_seed,
                 trajectory_dataset=trajectory_dataset,
                 embedding_weights=embedding_weights,
@@ -377,6 +365,8 @@ def run_generations(
     unique_types = sorted(set(item_types))
     words = trajectory_dataset.words
     targets = trajectory_dataset.pad_targets(trajectory_dataset.y_real).numpy()
+    
+    # Save the trajectory drift plots.
     for idx_type, item_type in enumerate(unique_types):
         idxs = [i for i, t in enumerate(item_types) if t == item_type]
         if not idxs:
@@ -399,11 +389,11 @@ def run_generations(
         safe_type = "".join(ch for ch in str(item_type) if ch.isalnum() or ch in "_-")
         if not safe_type:
             safe_type = f"type_{idx_type}"
-        out_path = summary_dir / f"mean_drift_{safe_type}.png"
-        save_mean_trajectory_drift(stats_by_gen, str(out_path))
+        trajectory_drift_path = summary_dir / f"prediction_drift_{safe_type}.png"
+        save_trajectory_drift(stats_by_gen, str(trajectory_drift_path))
 
     # Save all generation predictions in one CSV file.
-    preds_csv_path = summary_dir / "preds_by_generation.csv"
+    preds_csv_path = summary_dir / "predictions.csv"
     with open(preds_csv_path, "w", encoding="utf-8") as f:
         max_len = max(len(target) for target in trajectory_dataset.y_real)
         timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
@@ -415,25 +405,36 @@ def run_generations(
                 pred_values = ",".join(str(value) for value in padded_pred)
                 f.write(f"{gen},{idx},{words[idx]},{item_types[idx]},{pred_values}\n")
 
+    # Save the combined pretraining history.
+    if pretrain_history_by_gen:
+        pretrain_history_path = summary_dir / "pretrain_history.csv"
+        with open(pretrain_history_path, "w", encoding="utf-8") as f:
+            f.write("generation,epoch,subset,loss\n")
+            for gen, rows in pretrain_history_by_gen.items():
+                for epoch, subset, loss in rows:
+                    f.write(f"{gen},{epoch},{subset},{loss}\n")
+
+    # Save the combined trajectory history.
+    if train_history_by_gen:
+        history_path = summary_dir / "history.csv"
+        with open(history_path, "w", encoding="utf-8") as f:
+            f.write("generation,epoch,subset,loss,main_loss,penalty_loss\n")
+            for gen, rows in train_history_by_gen.items():
+                for epoch, subset, loss, main_loss, penalty_loss in rows:
+                    f.write(
+                        f"{gen},{epoch},{subset},{loss},{main_loss},{penalty_loss}\n"
+                    )
+
     # Save loss drift plot across generations.
     history_by_gen = {}
-    for gen in range(0, num_generations):
-        history_path = iteration_root / f"{condition}_gen_{gen}" / "history.csv"
-        if not history_path.exists():
-            continue
+    for gen, rows in train_history_by_gen.items():
         train_loss = []
         test_loss = []
-        with open(history_path, "r", encoding="utf-8") as f:
-            next(f, None)
-            for line in f:
-                parts = line.strip().split(",")
-                if len(parts) < 3:
-                    continue
-                _, subset, loss_str = parts[:3]
-                if subset == "train":
-                    train_loss.append(float(loss_str))
-                elif subset == "test":
-                    test_loss.append(float(loss_str))
+        for _, subset, loss, _, _ in rows:
+            if subset == "train":
+                train_loss.append(float(loss))
+            elif subset == "test":
+                test_loss.append(float(loss))
         history_by_gen[gen] = {"train_loss": train_loss, "test_loss": test_loss}
     loss_drift_path = summary_dir / "loss_drift.png"
     save_loss_drift(history_by_gen, str(loss_drift_path))

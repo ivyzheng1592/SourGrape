@@ -35,6 +35,41 @@ class Vocab:
             json.dump(self.char_to_id, f, ensure_ascii=True, indent=2)
 
 
+class PhonemeDataset(Dataset):
+    def __init__(
+        self,
+        condition: str,
+        data_path: str,
+        augment: bool = False,
+    ) -> None:
+        # Load the phoneme targets for this condition.
+        df = pd.read_excel(str(data_path))
+        df = df[df["condition"] == condition]
+        self.phonemes = df["UR"].astype(str).tolist()
+        targets = torch.tensor(df["target"].astype(float).tolist(), dtype=torch.float32)
+        
+        # Add noise to the targets.
+        if augment:
+            targets = add_noise(targets)
+        self.targets = targets.tolist()
+        
+        # Build the phoneme vocabulary.
+        self.vocab = Vocab.build_vocab(
+            symbols=self.phonemes,
+            pad_id=hp.padding_id,
+        )
+
+    def __len__(self) -> int:
+        return len(self.phonemes)
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        # Return the encoded phoneme id and its target value.
+        return {
+            "x": torch.tensor(self.vocab.char_to_id[self.phonemes[idx]], dtype=torch.long),
+            "y": torch.tensor(self.targets[idx], dtype=torch.float32),
+        }
+
+
 class RepeatShuffleSampler(Sampler[int]):
     def __init__(self, dataset_size: int, repeats: int, seed: int) -> None:
         self.dataset_size = dataset_size
@@ -221,38 +256,3 @@ class SourGrapeDataset(Dataset):
             }
 
         return collate_batch
-
-
-class PhonemeDataset(Dataset):
-    def __init__(
-        self,
-        condition: str,
-        data_path: str,
-        augment: bool = False,
-    ) -> None:
-        # Load the phoneme targets for this condition.
-        df = pd.read_excel(str(data_path))
-        df = df[df["condition"] == condition]
-        self.phonemes = df["UR"].astype(str).tolist()
-        targets = torch.tensor(df["target"].astype(float).tolist(), dtype=torch.float32)
-        
-        # Add noise to the targets.
-        if augment:
-            targets = add_noise(targets)
-        self.targets = targets.tolist()
-        
-        # Build the phoneme vocabulary.
-        self.vocab = Vocab.build_vocab(
-            symbols=self.phonemes,
-            pad_id=hp.padding_id,
-        )
-
-    def __len__(self) -> int:
-        return len(self.phonemes)
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        # Return the encoded phoneme id and its target value.
-        return {
-            "x": torch.tensor(self.vocab.char_to_id[self.phonemes[idx]], dtype=torch.long),
-            "y": torch.tensor(self.targets[idx], dtype=torch.float32),
-        }

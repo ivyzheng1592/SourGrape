@@ -1,9 +1,7 @@
-from typing import Tuple
+from typing import Callable, Tuple
 
 import torch
 from torch import nn
-
-from typing import Callable
 
 
 def train_one_epoch(

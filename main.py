@@ -9,12 +9,6 @@ def parse_args() -> argparse.Namespace:
         description="Run SourGrape phoneme pretraining and trajectory training."
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        default=hp.seed,
-        help="Set the base random seed for the run.",
-    )
-    parser.add_argument(
         "--iterations",
         type=int,
         default=hp.iterations,
@@ -51,9 +45,9 @@ def parse_args() -> argparse.Namespace:
         help="Override the auxiliary penalty loss weight.",
     )
     return parser.parse_args()
-def main() -> None:
-    args = parse_args()
-    hp.seed = args.seed
+
+
+def override_hyperparams(args: argparse.Namespace) -> None:
     hp.iterations = args.iterations
     hp.generations = args.generations
     hp.stage = args.stage
@@ -63,7 +57,17 @@ def main() -> None:
         hp.penalty_loss_type = args.penalty_loss_type
     if args.penalty_loss_weight is not None:
         hp.penalty_loss_weight = args.penalty_loss_weight
-    run_iterations()
+
+
+def main() -> None:
+    args = parse_args()
+    override_hyperparams(args)
+    run_iterations(
+        seed=hp.seed,
+        num_iterations=hp.iterations,
+        num_generations=hp.generations,
+        stage=hp.stage,
+    )
 
 
 if __name__ == "__main__":

@@ -1,22 +1,8 @@
-from typing import Iterable, Sequence, Mapping
+from typing import Mapping, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
-import math
 from sklearn.decomposition import PCA
-
-
-def plot_word_trajectory(word: str, trajectory: Sequence[float], title_prefix: str = "Input") -> None:
-    # Plot a single word and its trajectory for quick inspection.
-    y = list(trajectory)
-    x = list(range(len(y)))
-    plt.figure(figsize=(8, 3))
-    plt.plot(x, y, linewidth=1.5)
-    plt.title(f"{title_prefix}: {word}")
-    plt.xlabel("Time index")
-    plt.ylabel("Trajectory value")
-    plt.tight_layout()
-    plt.show()
 
 
 def save_loss_plot(history: dict, path: str) -> None:
@@ -62,11 +48,11 @@ def save_prediction_plot(
     plt.close()
 
 
-def save_mean_trajectory_drift(
+def save_trajectory_drift(
     stats_by_gen: Mapping[int | str, Mapping[str, np.ndarray]],
     output_path: str,
 ) -> None:
-    # Save one mean trajectory drift plot with SD bands for a single item type.
+    # Save one trajectory drift plot with SD bands for a single item type.
     if not stats_by_gen:
         return
     gens = sorted(k for k in stats_by_gen.keys() if k != "target")
@@ -163,7 +149,7 @@ def save_loss_drift(
     plt.close(fig)
 
 
-def save_embedding_pca(
+def save_embedding_plot(
     embedding_weights: np.ndarray,
     id_to_char: Mapping[int, str],
     output_path: str,
