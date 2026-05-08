@@ -33,6 +33,12 @@ def parse_args() -> argparse.Namespace:
         help="Override the trajectory model type.",
     )
     parser.add_argument(
+        "--bidirectional",
+        choices=["true", "false"],
+        default=None,
+        help="Override whether the trajectory encoder is bidirectional.",
+    )
+    parser.add_argument(
         "--penalty-loss-type",
         choices=["sigmoid_bce", "relu_mse", "softplus_mse"],
         default=None,
@@ -53,6 +59,8 @@ def override_hyperparams(args: argparse.Namespace) -> None:
     hp.stage = args.stage
     if args.model_type is not None:
         hp.model_type = args.model_type
+    if args.bidirectional is not None:
+        hp.bidirectional = args.bidirectional == "true"
     if args.penalty_loss_type is not None:
         hp.penalty_loss_type = args.penalty_loss_type
     if args.penalty_loss_weight is not None:

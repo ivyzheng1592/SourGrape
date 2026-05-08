@@ -36,6 +36,7 @@ batch_size = 16
 epochs = 25
 lr = 1e-4
 model_type = "lstm"  # "lstm" or "seq2seq"
+bidirectional = False
 embed_size = 2
 hidden_size = 16
 num_layers = 1

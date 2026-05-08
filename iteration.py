@@ -132,6 +132,7 @@ def run_trajectory_training(
         model = Seq2SeqRegressor(
             input_size=len(trajectory_dataset.vocab.char_to_id),
             output_len=trajectory_dataset.max_trajectory_len,
+            bidirectional=hp.bidirectional,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )
@@ -139,6 +140,7 @@ def run_trajectory_training(
         model = LSTMRegressor(
             input_size=len(trajectory_dataset.vocab.char_to_id),
             output_size=trajectory_dataset.max_trajectory_len,
+            bidirectional=hp.bidirectional,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )

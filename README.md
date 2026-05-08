@@ -60,6 +60,12 @@ To override model and penalty-loss settings:
 python main.py --model-type seq2seq --penalty-loss-type relu_mse --penalty-loss-weight 1.0
 ```
 
+To override encoder directionality:
+
+```bash
+python main.py --model-type lstm --bidirectional true
+```
+
 ## Data Requirements
 
 ### 1) Phoneme metadata XLSX

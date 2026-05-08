@@ -12,7 +12,7 @@ class PhonemeRegressor(nn.Module):
     ) -> None:
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_size, padding_idx=0)
-        self.head = nn.Linear(embed_size, 1)
+        self.out_proj = nn.Linear(embed_size, 1)
 
     def forward(
         self,
@@ -20,7 +20,7 @@ class PhonemeRegressor(nn.Module):
         targets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         emb = self.embedding(phoneme_ids)
-        out = self.head(emb).squeeze(-1)
+        out = self.out_proj(emb).squeeze(-1)
         return out
 
 
@@ -33,10 +33,15 @@ class LSTMRegressor(nn.Module):
         hidden_size: int = hp.hidden_size,
         num_layers: int = hp.num_layers,
         dropout: float = hp.dropout,
+        bidirectional: bool = hp.bidirectional,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.num_directions = 2 if bidirectional else 1
+
         # Character embeddings; padding index 0 matches PAD_TOKEN.
         if embedding_weights is None:
             self.embedding = nn.Embedding(
@@ -50,19 +55,18 @@ class LSTMRegressor(nn.Module):
                 freeze=freeze_embedding,
                 padding_idx=hp.padding_id,
             )
-        # PyTorch applies dropout between LSTM layers only when num_layers > 1.
-        lstm_dropout = dropout if num_layers > 1 else 0.0
         self.lstm = nn.LSTM(
             input_size=embed_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=lstm_dropout,
+            bidirectional=bidirectional,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
         # Regression head predicts the full trajectory vector.
-        self.head = nn.Sequential(
+        self.out_proj = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(hidden_size, output_size),
+            nn.Linear(hidden_size * (2 if bidirectional else 1), output_size),
         )
 
     def forward(
@@ -73,19 +77,20 @@ class LSTMRegressor(nn.Module):
         # Embed characters into vectors.
         emb = self.embedding(x)
         # Run the LSTM across the fixed-length word.
-        out, _ = self.lstm(emb)
-        # Use the final timestep output as the word representation.
-        last_hidden = out[:, -1, :]
+        _, (hidden, _) = self.lstm(emb)
+        # Use the last encoder states as the word representation.
+        hidden = hidden.view(self.num_layers, self.num_directions, x.size(0), self.hidden_size)
+        last_hidden = hidden[-1].transpose(0, 1).reshape(x.size(0), -1)
         # Map to trajectory prediction.
-        return self.head(last_hidden)
+        return self.out_proj(last_hidden)
 
 
 class BahdanauAttention(nn.Module):
-    def __init__(self, hidden_size: int) -> None:
+    def __init__(self, decoder_hidden_size: int, encoder_output_size: int) -> None:
         super().__init__()
-        self.query_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.key_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-        self.score_proj = nn.Linear(hidden_size, 1, bias=False)
+        self.query_proj = nn.Linear(decoder_hidden_size, decoder_hidden_size, bias=False)
+        self.key_proj = nn.Linear(encoder_output_size, decoder_hidden_size, bias=False)
+        self.score_proj = nn.Linear(decoder_hidden_size, 1, bias=False)
 
     def forward(
         self,
@@ -114,6 +119,7 @@ class Seq2SeqRegressor(nn.Module):
         hidden_size: int = hp.hidden_size,
         num_layers: int = hp.num_layers,
         dropout: float = hp.dropout,
+        bidirectional: bool = hp.bidirectional,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
         padding_id: int = hp.padding_id,
@@ -125,6 +131,10 @@ class Seq2SeqRegressor(nn.Module):
         self.padding_id = padding_id
         self.padding_value = padding_value
         self.teacher_forcing_ratio = teacher_forcing_ratio
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.num_directions = 2 if bidirectional else 1
+        self.encoder_output_size = hidden_size * self.num_directions
 
         # Embed the input characters.
         if embedding_weights is None:
@@ -145,19 +155,22 @@ class Seq2SeqRegressor(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
+            bidirectional=bidirectional,
             dropout=dropout if num_layers > 1 else 0.0,
         )
         # Score the encoder outputs at each decoder step.
-        self.attention = BahdanauAttention(hidden_size)
+        self.attention = BahdanauAttention(hidden_size, self.encoder_output_size)
+        self.encoder_hidden_proj = nn.Linear(self.encoder_output_size, hidden_size)
+        self.encoder_cell_proj = nn.Linear(self.encoder_output_size, hidden_size)
         # Update the decoder state one step at a time.
         self.decoder = nn.LSTMCell(
-            input_size=hidden_size + 1,
+            input_size=self.encoder_output_size + 1,
             hidden_size=hidden_size,
         )
         # Predict the next trajectory value.
         self.out_proj = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(hidden_size * 2, 1),
+            nn.Linear(hidden_size + self.encoder_output_size, 1),
         )
 
     def forward(
@@ -172,8 +185,22 @@ class Seq2SeqRegressor(nn.Module):
         # Mark the non-padding encoder positions.
         encoder_mask = x != self.padding_id
         # Initialize the decoder state from the last encoder states.
-        decoder_hidden = encoder_hidden[-1]
-        decoder_cell = encoder_cell[-1]
+        encoder_hidden = encoder_hidden.view(
+            self.num_layers,
+            self.num_directions,
+            x.size(0),
+            self.hidden_size,
+        )
+        encoder_cell = encoder_cell.view(
+            self.num_layers,
+            self.num_directions,
+            x.size(0),
+            self.hidden_size,
+        )
+        last_hidden = encoder_hidden[-1].transpose(0, 1).reshape(x.size(0), -1)
+        last_cell = encoder_cell[-1].transpose(0, 1).reshape(x.size(0), -1)
+        decoder_hidden = self.encoder_hidden_proj(last_hidden)
+        decoder_cell = self.encoder_cell_proj(last_cell)
         
         # Use zeros as the first decoder input.
         decoder_input = torch.zeros(x.size(0), 1, dtype=emb.dtype, device=emb.device)
