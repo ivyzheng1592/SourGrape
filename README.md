@@ -15,7 +15,6 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
 2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
    - Reads one metadata file, `meta_file.csv`.
    - Loads each `.npy` trajectory, stores raw variable-length targets, and pads batches to `max_trajectory_len` during collation.
-   - Loads a penalty target for each `item_type` from `nasal_penalty_meta_file.csv`.
    - Uses pretrained phoneme embeddings and freezes them by default.
    - Builds two dataloaders from the same dataset:
      - a **training** loader that sees each item `train_repeats_per_epoch` times per epoch in mixed order, with on-the-fly augmentation applied to `y_prev`
@@ -23,7 +22,6 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
    - Trains a word→trajectory model and saves predictions + plots.
    - Updates `y_prev` row-by-row from the final predictions of the current generation.
    - Saves trajectory drift plots with mean curves and SD bands across generations.
-   - Adds an auxiliary penalty loss that compares predicted nasal activity against the penalty target.
 
 ## Quick Start
 
@@ -54,10 +52,10 @@ python main.py --stage pretrain
 python main.py --stage train
 ```
 
-To override model and penalty-loss settings:
+To override model settings:
 
 ```bash
-python main.py --model-type seq2seq --penalty-loss-type relu_mse --penalty-loss-weight 1.0
+python main.py --model-type seq2seq
 ```
 
 To override encoder directionality:
@@ -105,21 +103,7 @@ Each `file_name` should point to a `.npy` file containing a 1D or flattenable tr
 - Pads batches to `max_trajectory_len` (default `153`) using `padding_value` (default `-999.0`)
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
-### 4) Nasal Penalty Metadata
-`hyper_params.py` expects:
-
-- `dataset/nasal_penalty_meta_file.csv`
-- `dataset/nasal_penalty/`
-
-Required columns:
-
-- `item_type`: item type in the main metadata file
-- `condition`: condition label used to filter rows
-- `file_name`: penalty `.npy` file for that item type
-
-Each penalty file is a time-aligned target used by the auxiliary penalty loss during trajectory training.
-
-### 5) Repeated Training Passes
+### 4) Repeated Training Passes
 The trajectory stage uses a single dataset for both training and testing.
 
 - During **training**, each epoch repeats the full dataset `train_repeats_per_epoch` times (default `20`) in mixed order using a sampler.
@@ -135,7 +119,6 @@ All hyperparameters live in `hyper_params.py`:
 - Embedding size, hidden size, dropout, and teacher forcing ratio
 - Training epochs and learning rate
 - Data paths, repetition count, and padding values
-- Penalty loss paths and parameters
 - Device (`cpu`/`cuda`)
 
 ## Outputs
@@ -194,4 +177,3 @@ If `--stage train` is used, the run skips phoneme pretraining and trains the tra
 - **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Drift plots include variability**: the trajectory drift plot shows mean trajectories with SD bands for the target and each generation.
-- **Penalty loss supervision**: trajectory training also compares predicted nasal activity against the penalty targets loaded from `nasal_penalty_meta_file.csv`.

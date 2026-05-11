@@ -99,35 +99,21 @@ class SourGrapeDataset(Dataset):
         condition: str,
         trajectory_data_path: str,
         trajectory_npy_root: str = hp.trajectory_npy_root,
-        penalty_data_path: str = hp.penalty_data_path,
-        penalty_npy_root: str = hp.penalty_npy_root,
         padding_value: float = hp.padding_value,
         max_trajectory_len: int = hp.max_trajectory_len,
     ) -> None:
         # Load the metadata for this condition.
         df = self._load_metadata(trajectory_data_path, condition)
-        penalty_df = self._load_metadata(penalty_data_path, condition)
         
         # Store the dataset item types.
         self.item_types = df["item_type"].tolist()
         self.pad_value = padding_value
         self.max_trajectory_len = max_trajectory_len
-        penalty_file_by_item_type = {
-            row["item_type"]: row["file_name"]
-            for _, row in penalty_df.iterrows()
-        }
         
-        # Resolve the trajectory and penalty directories.
+        # Resolve the trajectory directory.
         trajectory_root = Path(trajectory_npy_root).resolve()
-        penalty_root = Path(penalty_npy_root).resolve()
-        # Load the trajectory and penalty targets.
+        # Load the trajectory targets.
         sequences = self._load_trajectories(df["file_name"].tolist(), trajectory_root)
-        penalty_targets = self._load_penalty_targets(
-            item_types=self.item_types,
-            penalty_file_by_item_type=penalty_file_by_item_type,
-            penalty_root=penalty_root,
-            trajectories=sequences,
-        )
 
         # Encode each word as character ids.
         self.words = df["UR"].tolist()
@@ -141,7 +127,6 @@ class SourGrapeDataset(Dataset):
         # Store the original and current trajectory targets.
         self.y_real = [sequence.clone() for sequence in sequences]
         self.y_prev = [sequence.clone() for sequence in sequences]
-        self.penalty_targets = [target.clone() for target in penalty_targets]
 
     def __len__(self) -> int:
         return len(self.words)
@@ -169,33 +154,12 @@ class SourGrapeDataset(Dataset):
             trajectories.append(torch.tensor(flat.astype(np.float32), dtype=torch.float32))
         return trajectories
 
-    def _load_penalty_targets(
-        self,
-        item_types: list[str],
-        penalty_file_by_item_type: dict[str, str],
-        penalty_root: Path,
-        trajectories: list[torch.Tensor],
-    ) -> list[torch.Tensor]:
-        # Load the penalty targets.
-        penalty_targets = []
-        for item_type, trajectory in zip(item_types, trajectories):
-            penalty_file = penalty_file_by_item_type[item_type]
-            penalty_path = penalty_root / str(penalty_file)
-            penalty_arr = np.load(str(penalty_path)).reshape(-1).astype(np.float32)
-            if len(penalty_arr) != len(trajectory):
-                raise ValueError(
-                    f"Penalty length {len(penalty_arr)} does not match trajectory length {len(trajectory)}."
-                )
-            penalty_targets.append(torch.tensor(penalty_arr, dtype=torch.float32))
-        return penalty_targets
-
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         # Return the encoded word and its targets.
         return {
             "x": self.x[idx],
             "y_real": self.y_real[idx],
             "y_prev": self.y_prev[idx],
-            "penalty_target": self.penalty_targets[idx],
             "item_type": self.item_types[idx],
         }
 
@@ -244,14 +208,10 @@ class SourGrapeDataset(Dataset):
             # Pad the batch targets.
             y_real = self.pad_targets([sample["y_real"] for sample in batch])
             y_prev = self.pad_targets(targets)
-            penalty_target = self.pad_targets(
-                [sample["penalty_target"] for sample in batch]
-            )
             return {
                 "x": x,
                 "y_real": y_real,
                 "y_prev": y_prev,
-                "penalty_target": penalty_target,
                 "item_type": [sample["item_type"] for sample in batch],
             }
 
