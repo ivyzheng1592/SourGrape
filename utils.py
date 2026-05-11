@@ -234,8 +234,6 @@ def save_loss_drift_plot(
         sharex=False,
         sharey=False,
     )
-    if len(subset_names) == 1:
-        axes = [axes]
 
     # Plot one loss panel per subset, with one line per generation.
     for ax, subset_name in zip(axes, subset_names):

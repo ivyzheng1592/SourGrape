@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +19,6 @@ from utils import (
     save_trajectory_plots,
     save_trajectory_drift_plots,
 )
-from datetime import datetime
 
 
 def run_phoneme_pretrain(
@@ -376,7 +376,7 @@ def run_generations(
             str(summary_dir / "loss_drift.png"),
         )
 
-        # Save the trajectory drift plots grouped by exposed-set vs held-out scope.
+        # Save the trajectory drift plots grouped by exposed-set vs held-out subset.
         save_trajectory_drift_plots(
             summary_dir=summary_dir,
             trajectory_dataset=trajectory_dataset,

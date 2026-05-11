@@ -22,6 +22,8 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
      - a **testing** loader over the exposed subsets
      - a **generalization** loader over the held-out subset
    - Trains a word→trajectory model and saves predictions + plots.
+   - Records per-epoch `train`, `test`, and `gen` losses against `y_prev`.
+   - Records one final `final` loss against `y_real` after training ends.
    - Updates `y_prev` row-by-row from the final predictions of the current generation.
    - Saves trajectory drift plots with mean curves and SD bands for exposed and held-out items.
 
@@ -163,8 +165,11 @@ output/iterations_<timestamp>/
     ...
 ```
 
-If `--stage pretrain` is used, the run only writes pretraining artifacts.
-If `--stage train` is used, the run skips phoneme pretraining and trains the trajectory model without pretrained embeddings.
+Stage-specific behavior:
+
+- `--stage all` writes both pretraining and trajectory-training artifacts.
+- `--stage pretrain` writes per-generation pretraining artifacts plus `pretrain_history.csv` in each summary directory.
+- `--stage train` skips phoneme pretraining, trains trajectory models without pretrained embeddings, and writes `history.csv`, `loss_drift.png`, trajectory drift plots, and `predictions.csv`.
 
 ## Repository Tour
 
@@ -188,3 +193,5 @@ If `--stage train` is used, the run skips phoneme pretraining and trains the tra
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Split rotation is cyclical**: the same seeded `A/B/C` split is reused across generations, while the exposed and held-out roles rotate.
 - **Drift plots include variability**: the trajectory drift plots show mean trajectories with SD bands for the target and each generation.
+- **`history.csv` row types**: trajectory history rows use `train`, `test`, `gen`, and `final`; pretraining history rows use `train` and `test`.
+- **`predictions.csv` columns**: each row stores the generation, item index, word, item type, fixed subset label (`a`/`b`/`c`), exposed-vs-held-out role (`test` or `gen`), and timestep values trimmed to the item's true trajectory length.
