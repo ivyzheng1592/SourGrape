@@ -55,6 +55,7 @@ class LSTMRegressor(nn.Module):
                 freeze=freeze_embedding,
                 padding_idx=hp.padding_id,
             )
+        # Encode the full character sequence into the final hidden state(s).
         self.lstm = nn.LSTM(
             input_size=embed_size,
             hidden_size=hidden_size,

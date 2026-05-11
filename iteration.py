@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 import torch.nn.functional as F
 
 import hyper_params as hp
@@ -10,11 +10,13 @@ from dataset import RepeatShuffleSampler, SourGrapeDataset, PhonemeDataset
 from model import LSTMRegressor, Seq2SeqRegressor, PhonemeRegressor
 from train_eval import eval_last_epoch, eval_one_epoch, train_one_epoch
 from utils import (
-    save_loss_plot,
-    save_prediction_plot,
-    save_trajectory_drift,
-    save_loss_drift,
     save_embedding_plot,
+    save_history_csv,
+    save_loss_drift_plot,
+    save_loss_plot,
+    save_predictions_csv,
+    save_trajectory_plots,
+    save_trajectory_drift_plots,
 )
 from datetime import datetime
 
@@ -61,11 +63,11 @@ def run_phoneme_pretrain(
     }
     history_rows = []
     for epoch in range(1, hp.pretrain_epochs + 1):
-        train_loss, _, _ = train_one_epoch(
-            model, train_loader, optimizer, device, loss_fn, training_type="pretrain"
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, loss_fn, stage="pretrain", device=device
         )
-        test_loss, _, _ = eval_one_epoch(
-            model, test_loader, device, loss_fn, training_type="pretrain"
+        test_loss = eval_one_epoch(
+            model, test_loader, loss_fn, stage="pretrain", device=device
         )
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
@@ -92,8 +94,77 @@ def run_phoneme_pretrain(
     return model.embedding.weight.detach().cpu(), history_rows
 
 
+def get_generation_labels(generation: int) -> tuple[set[str], str]:
+    # Return the exposed subset labels and held-out subset label.
+    if generation % 3 == 0:
+        return {"a", "b"}, "c"
+    if generation % 3 == 1:
+        return {"b", "c"}, "a"
+    return {"a", "c"}, "b"
+
+
+def get_generation_subsets(
+    generation: int,
+    trajectory_dataset: SourGrapeDataset,
+) -> tuple[Subset, Subset]:
+    # Return the exposed and held-out subsets for this generation.
+    exposure_labels, heldout_label = get_generation_labels(generation)
+    exposure_indices = [
+        idx for idx, subset in enumerate(trajectory_dataset.subsets)
+        if subset in exposure_labels
+    ]
+    heldout_indices = [
+        idx for idx, subset in enumerate(trajectory_dataset.subsets)
+        if subset == heldout_label
+    ]
+    return (
+        Subset(trajectory_dataset, exposure_indices),
+        Subset(trajectory_dataset, heldout_indices),
+    )
+
+
+def build_trajectory_loaders(
+    trajectory_dataset: SourGrapeDataset,
+    exposure_subset: Subset,
+    heldout_subset: Subset,
+    seed: int,
+) -> tuple[DataLoader, DataLoader, DataLoader, DataLoader]:
+    # Build the training, test, gen, and full loaders.
+    train_sampler = RepeatShuffleSampler(
+        dataset_size=len(exposure_subset),
+        repeats=hp.train_repeats_per_epoch,
+        seed=seed,
+    )
+    train_loader = DataLoader(
+        exposure_subset,
+        batch_size=hp.batch_size,
+        sampler=train_sampler,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=True),
+    )
+    test_loader = DataLoader(
+        exposure_subset,
+        batch_size=hp.batch_size,
+        shuffle=False,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=False),
+    )
+    gen_loader = DataLoader(
+        heldout_subset,
+        batch_size=hp.batch_size,
+        shuffle=False,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=False),
+    )
+    full_loader = DataLoader(
+        trajectory_dataset,
+        batch_size=hp.batch_size,
+        shuffle=False,
+        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=False),
+    )
+    return train_loader, test_loader, gen_loader, full_loader
+
+
 def run_trajectory_training(
     seed: int,
+    generation: int,
     trajectory_dataset: SourGrapeDataset,
     embedding_weights: torch.Tensor | None,
     device: torch.device,
@@ -108,23 +179,18 @@ def run_trajectory_training(
     model_dir = out_dir / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
 
+    # Select the subsets for this generation.
+    exposure_subset, heldout_subset = get_generation_subsets(
+        generation,
+        trajectory_dataset,
+    )
+
     # Build the training and test loaders.
-    train_sampler = RepeatShuffleSampler(
-        dataset_size=len(trajectory_dataset),
-        repeats=hp.train_repeats_per_epoch,
+    train_loader, test_loader, gen_loader, full_loader = build_trajectory_loaders(
+        trajectory_dataset=trajectory_dataset,
+        exposure_subset=exposure_subset,
+        heldout_subset=heldout_subset,
         seed=seed,
-    )
-    train_loader = DataLoader(
-        trajectory_dataset,
-        batch_size=hp.batch_size,
-        sampler=train_sampler,
-        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=True),
-    )
-    test_loader = DataLoader(
-        trajectory_dataset,
-        batch_size=hp.batch_size,
-        shuffle=False,
-        collate_fn=trajectory_dataset.get_collate_batch(augment_targets=False),
     )
 
     # Model selection.
@@ -163,6 +229,7 @@ def run_trajectory_training(
     history = {
         "train_loss": [],
         "test_loss": [],
+        "gen_loss": [],
     }
     history_rows = []
     for epoch in range(1, hp.epochs + 1):
@@ -170,24 +237,33 @@ def run_trajectory_training(
             model,
             train_loader,
             optimizer,
-            device,
             loss_fn,
-            training_type="train",
+            stage="train",
+            device=device,
         )
         test_loss = eval_one_epoch(
             model,
             test_loader,
-            device,
             loss_fn,
-            training_type="train",
+            stage="train",
+            device=device,
+        )
+        gen_loss = eval_one_epoch(
+            model,
+            gen_loader,
+            loss_fn,
+            stage="train",
+            device=device,
         )
         history["train_loss"].append(train_loss)
         history["test_loss"].append(test_loss)
+        history["gen_loss"].append(gen_loss)
         history_rows.append((epoch, "train", train_loss))
         history_rows.append((epoch, "test", test_loss))
+        history_rows.append((epoch, "gen", gen_loss))
         print(
             f"epoch={epoch}, train_loss={train_loss:.6f}, "
-            f"test_loss={test_loss:.6f}"
+            f"test_loss={test_loss:.6f}, gen_loss={gen_loss:.6f}"
         )
         # Save a checkpoint every five epochs.
         if epoch % 5 == 0:
@@ -198,17 +274,16 @@ def run_trajectory_training(
     loss_plot_path = out_dir / "loss_curve.png"
     save_loss_plot(history, str(loss_plot_path))
 
-    # Evaluate the model on the full trajectory dataset.
+    # Evaluate the model on the full dataset and collect aligned predictions.
     final_loss, preds = eval_last_epoch(
         model,
-        test_loader,
-        device,
+        full_loader,
         loss_fn,
-        training_type="train",
+        device,
     )
-    history["final_test_loss"] = final_loss
-    history_rows.append((hp.epochs, "final_test", final_loss))
-    print(f"final_test_loss={final_loss:.6f}")
+    history["final_loss"] = final_loss
+    history_rows.append((hp.epochs, "final", final_loss))
+    print(f"final_loss={final_loss:.6f}")
 
     # Get the mean value of y_prev before updating it.
     masked_mean_before = torch.cat(trajectory_dataset.y_prev).mean().item()
@@ -221,23 +296,8 @@ def run_trajectory_training(
         f"y_prev_mean_after={masked_mean_after:.6f}"
     )
 
-    # Save one prediction plot per item type.
-    seen_types = set()
-    for idx in range(len(trajectory_dataset)):
-        item_type = trajectory_dataset[idx]["item_type"]
-        if item_type in seen_types:
-            continue
-        word = "".join(
-            trajectory_dataset.vocab.id_to_char[i]
-            for i in trajectory_dataset[idx]["x"].tolist()
-        )
-        target = trajectory_dataset[idx]["y_real"].tolist()
-        prediction = preds[idx, : len(target)].tolist()
-        pred_path = out_dir / f"prediction_{item_type}.png"
-        save_prediction_plot(word, target, prediction, str(pred_path))
-        seen_types.add(item_type)
-        if len(seen_types) >= 5:
-            break
+    # Save a small set of example trajectory plots for this generation.
+    save_trajectory_plots(trajectory_dataset, preds.numpy(), out_dir)
 
     return preds.numpy(), history_rows
 
@@ -267,6 +327,7 @@ def run_generations(
         condition=condition,
         trajectory_data_path=hp.trajectory_data_path,
         trajectory_npy_root=hp.trajectory_npy_root,
+        subset_seed=seed,
     )
     
     # Store the predictions from each generation.
@@ -293,94 +354,47 @@ def run_generations(
             # Run trajectory training for this generation.
             preds_by_gen[gen], train_history_by_gen[gen] = run_trajectory_training(
                 seed=generation_seed,
+                generation=gen,
                 trajectory_dataset=trajectory_dataset,
                 embedding_weights=embedding_weights,
                 device=device,
                 out_dir=gen_out_dir,
             )
 
-    if not preds_by_gen:
-        return
-
-    # Save the condition summary artifacts.
     summary_dir = iteration_root / f"{condition}_summary"
     summary_dir.mkdir(parents=True, exist_ok=True)
-    item_types = list(trajectory_dataset.item_types)
-    unique_types = sorted(set(item_types))
-    words = trajectory_dataset.words
-    targets = trajectory_dataset.pad_targets(trajectory_dataset.y_real).numpy()
-    
-    # Save the trajectory drift plots.
-    for idx_type, item_type in enumerate(unique_types):
-        idxs = [i for i, t in enumerate(item_types) if t == item_type]
-        if not idxs:
-            continue
-        stats_by_gen = {}
-        targets_subset = targets[idxs]
-        mask = targets_subset != hp.padding_value
-        for gen, preds in preds_by_gen.items():
-            preds_subset = preds[idxs]
-            masked = np.where(mask, preds_subset, np.nan)
-            stats_by_gen[gen] = {
-                "mean": np.nanmean(masked, axis=0),
-                "std": np.nanstd(masked, axis=0),
-            }
-        masked_targets = np.where(mask, targets_subset, np.nan)
-        stats_by_gen["target"] = {
-            "mean": np.nanmean(masked_targets, axis=0),
-            "std": np.nanstd(masked_targets, axis=0),
-        }
-        safe_type = "".join(ch for ch in str(item_type) if ch.isalnum() or ch in "_-")
-        if not safe_type:
-            safe_type = f"type_{idx_type}"
-        trajectory_drift_path = summary_dir / f"prediction_drift_{safe_type}.png"
-        save_trajectory_drift(stats_by_gen, str(trajectory_drift_path))
 
-    # Save all generation predictions in one CSV file.
-    preds_csv_path = summary_dir / "predictions.csv"
-    with open(preds_csv_path, "w", encoding="utf-8") as f:
-        max_len = max(len(target) for target in trajectory_dataset.y_real)
-        timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
-        f.write(f"generation,item_index,word,item_type,{timestep_cols}\n")
-        for gen, preds in preds_by_gen.items():
-            for idx, pred in enumerate(preds):
-                valid_pred = pred[: len(trajectory_dataset.y_real[idx])]
-                padded_pred = list(valid_pred) + [""] * (max_len - len(valid_pred))
-                pred_values = ",".join(str(value) for value in padded_pred)
-                f.write(f"{gen},{idx},{words[idx]},{item_types[idx]},{pred_values}\n")
+    if stage in {"all", "pretrain"}:
+        # Save the combined pretraining history.
+        save_history_csv(pretrain_history_by_gen, summary_dir / "pretrain_history.csv")
 
-    # Save the combined pretraining history.
-    if pretrain_history_by_gen:
-        pretrain_history_path = summary_dir / "pretrain_history.csv"
-        with open(pretrain_history_path, "w", encoding="utf-8") as f:
-            f.write("generation,epoch,subset,loss\n")
-            for gen, rows in pretrain_history_by_gen.items():
-                for epoch, subset, loss in rows:
-                    f.write(f"{gen},{epoch},{subset},{loss}\n")
+    if stage in {"all", "train"}:
+        # Save the combined trajectory-training history.
+        save_history_csv(train_history_by_gen, summary_dir / "history.csv")
+        save_loss_drift_plot(
+            train_history_by_gen,
+            str(summary_dir / "loss_drift.png"),
+        )
 
-    # Save the combined trajectory history.
-    if train_history_by_gen:
-        history_path = summary_dir / "history.csv"
-        with open(history_path, "w", encoding="utf-8") as f:
-            f.write("generation,epoch,subset,loss\n")
-            for gen, rows in train_history_by_gen.items():
-                for epoch, subset, loss in rows:
-                    f.write(f"{gen},{epoch},{subset},{loss}\n")
+        # Save the trajectory drift plots grouped by exposed-set vs held-out scope.
+        save_trajectory_drift_plots(
+            summary_dir=summary_dir,
+            trajectory_dataset=trajectory_dataset,
+            preds_by_gen=preds_by_gen,
+            get_generation_labels=get_generation_labels,
+            padding_value=hp.padding_value,
+        )
 
-    # Save loss drift plot across generations.
-    history_by_gen = {}
-    for gen, rows in train_history_by_gen.items():
-        train_loss = []
-        test_loss = []
-        for _, subset, loss, _, _ in rows:
-            if subset == "train":
-                train_loss.append(float(loss))
-            elif subset == "test":
-                test_loss.append(float(loss))
-        history_by_gen[gen] = {"train_loss": train_loss, "test_loss": test_loss}
-    loss_drift_path = summary_dir / "loss_drift.png"
-    save_loss_drift(history_by_gen, str(loss_drift_path))
-
+        # Save all generation predictions in one CSV file.
+        save_predictions_csv(
+            preds_by_gen=preds_by_gen,
+            words=trajectory_dataset.words,
+            item_types=trajectory_dataset.item_types,
+            subsets=trajectory_dataset.subsets,
+            target_lengths=[len(target) for target in trajectory_dataset.y_real],
+            output_path=summary_dir / "predictions.csv",
+            get_generation_labels=get_generation_labels,
+        )
 
 def run_iterations(
     seed: int = hp.seed,

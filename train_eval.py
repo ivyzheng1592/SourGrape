@@ -8,9 +8,9 @@ def train_one_epoch(
     model: nn.Module,
     dataloader,
     optimizer: torch.optim.Optimizer,
-    device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str = "train",
+    stage: str,
+    device: torch.device,
 ) -> float:
     # Run one training epoch.
     model.train()
@@ -19,7 +19,7 @@ def train_one_epoch(
     for batch in dataloader:
         optimizer.zero_grad(set_to_none=True)
         x = batch["x"].to(device)
-        if training_type == "pretrain":
+        if stage == "pretrain":
             targets = batch["y"].to(device)
         else:
             # Train the trajectory model on y_prev.
@@ -39,9 +39,9 @@ def train_one_epoch(
 def eval_one_epoch(
     model: nn.Module,
     dataloader,
-    device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str = "train",
+    stage: str,
+    device: torch.device,
 ) -> float:
     # Run one evaluation epoch.
     model.eval()
@@ -49,11 +49,11 @@ def eval_one_epoch(
     total_loss = 0.0
     for batch in dataloader:
         x = batch["x"].to(device)
-        if training_type == "pretrain":
+        if stage == "pretrain":
             targets = batch["y"].to(device)
         else:
-            # Evaluate the trajectory model on y_real.
-            targets = batch["y_real"].to(device)
+            # Evaluate the trajectory model on y_prev during training.
+            targets = batch["y_prev"].to(device)
         preds = model(x)
         loss = loss_fn(preds, targets)
         total_loss += loss.item()
@@ -66,11 +66,10 @@ def eval_one_epoch(
 def eval_last_epoch(
     model: nn.Module,
     dataloader,
-    device: torch.device,
     loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-    training_type: str = "train",
+    device: torch.device,
 ) -> Tuple[float, torch.Tensor]:
-    # Evaluate on the full dataset and collect predictions.
+    # Evaluate one loader and collect predictions.
     model.eval()
 
     total_loss = 0.0
@@ -78,11 +77,8 @@ def eval_last_epoch(
 
     for batch in dataloader:
         x = batch["x"].to(device)
-        if training_type == "pretrain":
-            y = batch["y"].to(device)
-        else:
-            # Evaluate the trajectory model on y_real.
-            y = batch["y_real"].to(device)
+        # Evaluate the trajectory model on y_real at the end of training.
+        y = batch["y_real"].to(device)
         preds = model(x)
         loss = loss_fn(preds, y)
         total_loss += loss.item()

@@ -1,6 +1,6 @@
 # SourGrape: Velum Trajectory Mapping
 
-This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`) while always evaluating against the original trajectories (`y_real`).
+This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`). During each epoch, exposed-set and held-out-set evaluation are also measured against `y_prev`, while the final post-training evaluation is measured against the original trajectories (`y_real`).
 
 The command-line entry point is `main.py`, which runs both conditions (`glide`, `fricative`) for a chosen number of iterations and generations.
 
@@ -16,12 +16,14 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
    - Reads one metadata file, `meta_file.csv`.
    - Loads each `.npy` trajectory, stores raw variable-length targets, and pads batches to `max_trajectory_len` during collation.
    - Uses pretrained phoneme embeddings and freezes them by default.
-   - Builds two dataloaders from the same dataset:
-     - a **training** loader that sees each item `train_repeats_per_epoch` times per epoch in mixed order, with on-the-fly augmentation applied to `y_prev`
-     - a **testing** loader that sees each item once per epoch with no augmentation
+   - Assigns each item to one of three seeded subsets (`A`, `B`, `C`) when the trajectory dataset is loaded.
+   - Builds:
+     - a **training** loader over the exposed subsets
+     - a **testing** loader over the exposed subsets
+     - a **generalization** loader over the held-out subset
    - Trains a word→trajectory model and saves predictions + plots.
    - Updates `y_prev` row-by-row from the final predictions of the current generation.
-   - Saves trajectory drift plots with mean curves and SD bands across generations.
+   - Saves trajectory drift plots with mean curves and SD bands for exposed and held-out items.
 
 ## Quick Start
 
@@ -104,10 +106,15 @@ Each `file_name` should point to a `.npy` file containing a 1D or flattenable tr
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
 ### 4) Repeated Training Passes
-The trajectory stage uses a single dataset for both training and testing.
+The trajectory stage assigns one seeded three-way subset split for each condition.
 
-- During **training**, each epoch repeats the full dataset `train_repeats_per_epoch` times (default `20`) in mixed order using a sampler.
-- During **testing**, each epoch iterates over the same dataset once.
+- Generation `0` trains/tests on `A+B` and generalizes to `C`.
+- Generation `1` trains/tests on `B+C` and generalizes to `A`.
+- Generation `2` trains/tests on `A+C` and generalizes to `B`.
+- During **training**, each epoch repeats the exposed subsets `train_repeats_per_epoch` times (default `20`) in mixed order using a sampler.
+- During **testing**, each epoch iterates once over:
+  - the exposed subsets
+  - the held-out subset
 - Because augmentation is applied during batch collation for training only, repeated appearances of the same item can receive different augmented versions of `y_prev` within the same epoch.
 
 ## Configuration
@@ -141,13 +148,15 @@ output/iterations_<timestamp>/
     glide_summary/
       pretrain_history.csv
       history.csv
-      prediction_drift_<item_type>.png
+      prediction_drift_test_<item_type>.png
+      prediction_drift_gen_<item_type>.png
       loss_drift.png
       predictions.csv
     fricative_summary/
       pretrain_history.csv
       history.csv
-      prediction_drift_<item_type>.png
+      prediction_drift_test_<item_type>.png
+      prediction_drift_gen_<item_type>.png
       loss_drift.png
       predictions.csv
   iteration_1/
@@ -172,8 +181,10 @@ If `--stage train` is used, the run skips phoneme pretraining and trains the tra
 
 - **Flattening is intentional**: trajectories are flattened so the model predicts a single 1D vector, even if the raw data is multi‑dimensional.
 - **Raw trajectories are stored**: `y_real` and `y_prev` are kept as variable-length trajectories inside the dataset.
+- **Subset membership is stored per item**: each dataset item is assigned to subset `a`, `b`, or `c` when the trajectory dataset is loaded.
 - **Padding is batch-time only**: trajectories are padded to a fixed length during collation and drift plotting. Longer trajectories stop the run by design.
 - **Loss masking**: training and evaluation loss ignore padded values using `padding_value`.
-- **`y_prev` vs `y_real`**: training uses `y_prev` (previous generation predictions, with on-the-fly augmentation), while evaluation uses `y_real` (original targets).
+- **`y_prev` vs `y_real`**: per-epoch training, testing, and generalization use `y_prev` (previous generation predictions, with on-the-fly augmentation only during training), while the final post-training evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
-- **Drift plots include variability**: the trajectory drift plot shows mean trajectories with SD bands for the target and each generation.
+- **Split rotation is cyclical**: the same seeded `A/B/C` split is reused across generations, while the exposed and held-out roles rotate.
+- **Drift plots include variability**: the trajectory drift plots show mean trajectories with SD bands for the target and each generation.

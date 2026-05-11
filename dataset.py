@@ -99,6 +99,7 @@ class SourGrapeDataset(Dataset):
         condition: str,
         trajectory_data_path: str,
         trajectory_npy_root: str = hp.trajectory_npy_root,
+        subset_seed: int = hp.seed,
         padding_value: float = hp.padding_value,
         max_trajectory_len: int = hp.max_trajectory_len,
     ) -> None:
@@ -127,6 +128,7 @@ class SourGrapeDataset(Dataset):
         # Store the original and current trajectory targets.
         self.y_real = [sequence.clone() for sequence in sequences]
         self.y_prev = [sequence.clone() for sequence in sequences]
+        self.subsets = self._assign_subsets(subset_seed)
 
     def __len__(self) -> int:
         return len(self.words)
@@ -161,7 +163,22 @@ class SourGrapeDataset(Dataset):
             "y_real": self.y_real[idx],
             "y_prev": self.y_prev[idx],
             "item_type": self.item_types[idx],
+            "subset": self.subsets[idx],
         }
+
+    def _assign_subsets(self, seed: int) -> list[str]:
+        # Assign each item to subset a, b, or c.
+        generator = torch.Generator().manual_seed(seed)
+        shuffled_indices = torch.randperm(len(self), generator=generator).tolist()
+        split_size = len(self) // 3
+        subset_labels = [""] * len(self)
+        for idx in shuffled_indices[:split_size]:
+            subset_labels[idx] = "a"
+        for idx in shuffled_indices[split_size: split_size * 2]:
+            subset_labels[idx] = "b"
+        for idx in shuffled_indices[split_size * 2:]:
+            subset_labels[idx] = "c"
+        return subset_labels
 
     def pad_targets(self, targets: list[torch.Tensor]) -> torch.Tensor:
         # Pad the trajectory batch to a fixed-length tensor.
@@ -213,6 +230,7 @@ class SourGrapeDataset(Dataset):
                 "y_real": y_real,
                 "y_prev": y_prev,
                 "item_type": [sample["item_type"] for sample in batch],
+                "subset": [sample["subset"] for sample in batch],
             }
 
         return collate_batch
