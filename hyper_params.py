@@ -1,6 +1,6 @@
 # Global configuration shared across stages.
 conditions = ["glide", "fricative"]
-seed = 42  # change seed for individual iteration
+seed = 1234  # change seed for individual iteration
 device = "cuda"  # "cuda" or "cpu"
 output_root = "output"
 generations = 5
