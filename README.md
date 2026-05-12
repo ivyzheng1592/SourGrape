@@ -65,7 +65,7 @@ python main.py --model-type seq2seq
 To override encoder directionality:
 
 ```bash
-python main.py --model-type lstm --bidirectional true
+python main.py --model-type lstm --bidirectional True
 ```
 
 ## Data Requirements

@@ -4,6 +4,15 @@ import hyper_params as hp
 from iteration import run_iterations
 
 
+def parse_bool(value: str) -> bool:
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise argparse.ArgumentTypeError("Expected True or False.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run SourGrape phoneme pretraining and trajectory training."
@@ -34,8 +43,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bidirectional",
-        choices=["true", "false"],
+        type=parse_bool,
         default=None,
+        metavar="{True,False}",
         help="Override whether the trajectory encoder is bidirectional.",
     )
     return parser.parse_args()
@@ -48,7 +58,7 @@ def override_hyperparams(args: argparse.Namespace) -> None:
     if args.model_type is not None:
         hp.model_type = args.model_type
     if args.bidirectional is not None:
-        hp.bidirectional = args.bidirectional == "true"
+        hp.bidirectional = args.bidirectional
 
 
 def main() -> None:
