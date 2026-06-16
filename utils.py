@@ -272,15 +272,16 @@ def save_loss_drift_plot(
 def save_predictions_csv(
     iteration: int,
     condition: str,
+    targets: Sequence[Sequence[float]],
     preds_by_gen: Mapping[int, np.ndarray],
     words: Sequence[str],
     item_types: Sequence[str],
     subsets: Sequence[str],
-    target_lengths: Sequence[int],
-    output_path: Path,
     get_generation_labels: Callable[[int], tuple[set[str], str]],
+    output_path: Path,
 ) -> None:
     # Save all generation predictions in one CSV file.
+    target_lengths = [len(target) for target in targets]
     max_len = max(target_lengths)
     timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
     with open(output_path, "w", encoding="utf-8") as f:
@@ -288,6 +289,14 @@ def save_predictions_csv(
             f"iteration,condition,generation,item_index,word,item_type,subset,scope,"
             f"{timestep_cols}\n"
         )
+        for idx, target in enumerate(targets):
+            valid_target = list(target)
+            padded_target = valid_target + [""] * (max_len - len(valid_target))
+            target_values = ",".join(str(value) for value in padded_target)
+            f.write(
+                f"{iteration},{condition},-1,{idx},{words[idx]},{item_types[idx]},"
+                f"{subsets[idx]},target,{target_values}\n"
+            )
         for gen, preds in preds_by_gen.items():
             # Label each item as exposed-set test data or held-out gen data for this generation.
             exposure_labels, _ = get_generation_labels(gen)

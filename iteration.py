@@ -407,13 +407,13 @@ def run_generations(
         save_predictions_csv(
             iteration=iteration,
             condition=condition,
+            targets=[target.tolist() for target in trajectory_dataset.y_real],
             preds_by_gen=preds_by_gen,
             words=trajectory_dataset.words,
             item_types=trajectory_dataset.item_types,
             subsets=trajectory_dataset.subsets,
-            target_lengths=[len(target) for target in trajectory_dataset.y_real],
-            output_path=summary_dir / "predictions.csv",
             get_generation_labels=get_generation_labels,
+            output_path=summary_dir / "predictions.csv",
         )
 
 def run_iterations(
