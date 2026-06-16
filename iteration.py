@@ -311,12 +311,13 @@ def run_trajectory_training(
 
 
 def run_generations(
+    seed: int,
+    iteration: int,
+    condition: str,
+    num_generations: int,
+    stage: str,
+    device: torch.device,
     iteration_root: Path,
-    seed: int = hp.seed,
-    condition: str = "glide",
-    num_generations: int = hp.generations,
-    stage: str = hp.stage,
-    device: torch.device = torch.device(hp.device),
 ) -> None:
     # Run one full generation chain for a single condition.
     iteration_seed = seed
@@ -373,11 +374,21 @@ def run_generations(
 
     if stage in {"all", "pretrain"}:
         # Save the combined pretraining history.
-        save_history_csv(pretrain_history_by_gen, summary_dir / "pretrain_history.csv")
+        save_history_csv(
+            iteration=iteration,
+            condition=condition,
+            history_by_gen=pretrain_history_by_gen,
+            output_path=summary_dir / "pretrain_history.csv",
+        )
 
     if stage in {"all", "train"}:
         # Save the combined trajectory-training history.
-        save_history_csv(train_history_by_gen, summary_dir / "history.csv")
+        save_history_csv(
+            iteration=iteration,
+            condition=condition,
+            history_by_gen=train_history_by_gen,
+            output_path=summary_dir / "history.csv",
+        )
         save_loss_drift_plot(
             train_history_by_gen,
             str(summary_dir / "loss_drift.png"),
@@ -394,6 +405,8 @@ def run_generations(
 
         # Save all generation predictions in one CSV file.
         save_predictions_csv(
+            iteration=iteration,
+            condition=condition,
             preds_by_gen=preds_by_gen,
             words=trajectory_dataset.words,
             item_types=trajectory_dataset.item_types,
@@ -445,10 +458,11 @@ def run_iterations(
         # Run all conditions for this iteration.
         for condition in hp.conditions:
             run_generations(
-                iteration_root=iteration_root,
                 seed=iteration_seed,
+                iteration=iteration,
                 condition=condition,
                 num_generations=num_generations,
                 stage=stage,
                 device=device,
+                iteration_root=iteration_root,
             )

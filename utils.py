@@ -7,15 +7,17 @@ from sklearn.decomposition import PCA
 
 
 def save_history_csv(
+    iteration: int,
+    condition: str,
     history_by_gen: Mapping[int, list[tuple[int, str, float]]],
     output_path: Path,
 ) -> None:
     # Save all history rows for all generations in one CSV file.
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("generation,epoch,subset,loss\n")
+        f.write("iteration,condition,generation,epoch,subset,loss\n")
         for gen, rows in history_by_gen.items():
             for epoch, subset, loss in rows:
-                f.write(f"{gen},{epoch},{subset},{loss}\n")
+                f.write(f"{iteration},{condition},{gen},{epoch},{subset},{loss}\n")
 
 
 def save_loss_plot(history: dict, path: str) -> None:
@@ -268,6 +270,8 @@ def save_loss_drift_plot(
 
 
 def save_predictions_csv(
+    iteration: int,
+    condition: str,
     preds_by_gen: Mapping[int, np.ndarray],
     words: Sequence[str],
     item_types: Sequence[str],
@@ -280,7 +284,10 @@ def save_predictions_csv(
     max_len = max(target_lengths)
     timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write(f"generation,item_index,word,item_type,subset,scope,{timestep_cols}\n")
+        f.write(
+            f"iteration,condition,generation,item_index,word,item_type,subset,scope,"
+            f"{timestep_cols}\n"
+        )
         for gen, preds in preds_by_gen.items():
             # Label each item as exposed-set test data or held-out gen data for this generation.
             exposure_labels, _ = get_generation_labels(gen)
@@ -292,5 +299,6 @@ def save_predictions_csv(
                 scope_name = "test" if subsets[idx] in exposure_labels else "gen"
                 # Write one row with item metadata and timestep values.
                 f.write(
-                    f"{gen},{idx},{words[idx]},{item_types[idx]},{subsets[idx]},{scope_name},{pred_values}\n"
+                    f"{iteration},{condition},{gen},{idx},{words[idx]},{item_types[idx]},"
+                    f"{subsets[idx]},{scope_name},{pred_values}\n"
                 )

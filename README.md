@@ -196,5 +196,5 @@ Stage-specific behavior:
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Split rotation is cyclical**: the same seeded `A/B/C` split is reused across generations, while the exposed and held-out roles rotate.
 - **Drift plots include variability**: the trajectory drift plots show mean trajectories with SD bands for the target and each generation.
-- **`history.csv` row types**: trajectory history rows use `train`, `test`, `gen`, and `final`; pretraining history rows use `train` and `test`.
-- **`predictions.csv` columns**: each row stores the generation, item index, word, item type, fixed subset label (`a`/`b`/`c`), exposed-vs-held-out role (`test` or `gen`), and timestep values trimmed to the item's true trajectory length.
+- **`history.csv` / `pretrain_history.csv` columns**: each row stores the iteration, condition, generation, epoch, subset label, and loss value. Trajectory history rows use `train`, `test`, `gen`, and `final`; pretraining history rows use `train` and `test`.
+- **`predictions.csv` columns**: each row stores the iteration, condition, generation, item index, word, item type, fixed subset label (`a`/`b`/`c`), exposed-vs-held-out role (`test` or `gen`), and timestep values trimmed to the item's true trajectory length.

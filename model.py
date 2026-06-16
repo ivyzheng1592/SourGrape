@@ -83,32 +83,6 @@ class LSTMRegressor(nn.Module):
         # Map to trajectory prediction.
         return self.out_proj(last_hidden)
 
-
-class BahdanauAttention(nn.Module):
-    def __init__(self, decoder_hidden_size: int, encoder_output_size: int) -> None:
-        super().__init__()
-        self.query_proj = nn.Linear(decoder_hidden_size, decoder_hidden_size, bias=False)
-        self.key_proj = nn.Linear(encoder_output_size, decoder_hidden_size, bias=False)
-        self.score_proj = nn.Linear(decoder_hidden_size, 1, bias=False)
-
-    def forward(
-        self,
-        decoder_hidden: torch.Tensor,
-        encoder_outputs: torch.Tensor,
-        encoder_mask: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        # Score each encoder state against the current decoder state.
-        score_input = torch.tanh(
-            self.query_proj(decoder_hidden).unsqueeze(1) + self.key_proj(encoder_outputs)
-        )
-        scores = self.score_proj(score_input).squeeze(-1)
-        scores = scores.masked_fill(~encoder_mask, -1e9)
-        attn_weights = torch.softmax(scores, dim=1)
-        # Form the context vector as the weighted sum of encoder states.
-        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs).squeeze(1)
-        return context, attn_weights
-
-
 class Seq2SeqRegressor(nn.Module):
     def __init__(
         self,
@@ -156,19 +130,17 @@ class Seq2SeqRegressor(nn.Module):
             bidirectional=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
-        # Score the encoder outputs at each decoder step.
-        self.attention = BahdanauAttention(hidden_size, self.encoder_output_size)
         self.encoder_hidden_proj = nn.Linear(self.encoder_output_size, hidden_size)
         self.encoder_cell_proj = nn.Linear(self.encoder_output_size, hidden_size)
         # Update the decoder state one step at a time.
         self.decoder = nn.LSTMCell(
-            input_size=self.encoder_output_size + 1,
+            input_size=1,
             hidden_size=hidden_size,
         )
         # Predict the next trajectory value.
         self.out_proj = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(hidden_size + self.encoder_output_size, 1),
+            nn.Linear(hidden_size, 1),
         )
 
     def forward(
@@ -178,10 +150,8 @@ class Seq2SeqRegressor(nn.Module):
     ) -> torch.Tensor:
         # Encode the input sequence.
         emb = self.embedding(x)
-        encoder_outputs, (encoder_hidden, encoder_cell) = self.encoder(emb)
-        
-        # Mark the non-padding encoder positions.
-        encoder_mask = x != self.padding_id
+        _, (encoder_hidden, encoder_cell) = self.encoder(emb)
+
         # Initialize the decoder state from the last encoder states.
         encoder_hidden = encoder_hidden.view(
             self.num_layers,
@@ -209,18 +179,12 @@ class Seq2SeqRegressor(nn.Module):
         batch_size = x.size(0)
         outputs = []
         for step in range(self.output_len):
-            # Read a context vector from the encoder outputs.
-            context, _ = self.attention(decoder_hidden, encoder_outputs, encoder_mask)
-            lstm_input = torch.cat([decoder_input, context], dim=1)
-            
             # Update the decoder state.
             decoder_hidden, decoder_cell = self.decoder(
-                lstm_input,
+                decoder_input,
                 (decoder_hidden, decoder_cell),
             )
-            decoder_output = self.out_proj(
-                torch.cat([decoder_hidden, context], dim=1)
-            )
+            decoder_output = self.out_proj(decoder_hidden)
             outputs.append(decoder_output)
             
             # Select the next decoder input.
