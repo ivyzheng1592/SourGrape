@@ -9,7 +9,8 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
 1. **Phoneme pretraining** (`PhonemeRegressor` in `model.py`)
    - Reads `phoneme_target_file.xlsx` (UR → scalar target).
    - Trains an embedding + linear regressor to predict the scalar target.
-   - Can perturb phoneme targets with Gaussian noise when building the dataset (`augment=True`).
+   - Trains on the full phoneme set with `pretrain_repeats_per_epoch` repeated noisy passes per epoch.
+   - Evaluates once per epoch on the same full phoneme set with no noise.
    - Saves the embedding plot, loss curves, and checkpoints.
 
 2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
@@ -62,12 +63,6 @@ To override model settings:
 python main.py --model-type seq2seq
 ```
 
-To override encoder directionality:
-
-```bash
-python main.py --model-type lstm --bidirectional True
-```
-
 ## Data Requirements
 
 ### 1) Phoneme metadata XLSX
@@ -82,6 +77,8 @@ Required columns:
 - `condition`: label used to filter rows (e.g., `glide`, `fricative`)
 
 Note: the character vocabulary is built from the phoneme dataset for each condition, so all characters in `UR` must appear in the phoneme file for that same condition.
+
+Current training setup: the workbook is expected to contain one row per phoneme target for each condition. The pretraining stage repeats that full set with fresh Gaussian noise during training and runs one clean `test` pass with no noise each epoch.
 
 ### 2) Metadata CSV
 `hyper_params.py` expects:
@@ -108,6 +105,11 @@ Each `file_name` should point to a `.npy` file containing a 1D or flattenable tr
 - **Raises an error** if any trajectory is longer than `max_trajectory_len` (this is intentional; longer trajectories indicate a data problem)
 
 ### 4) Repeated Training Passes
+The phoneme pretraining stage uses the full phoneme set for both training and testing.
+
+- During **pretraining**, each epoch repeats the full phoneme set `pretrain_repeats_per_epoch` times (default `500`) in mixed order using a sampler.
+- During **pretraining testing**, each epoch iterates once over the same phoneme set with no noise.
+
 The trajectory stage assigns one seeded three-way subset split for each condition.
 
 - Generation `0` trains/tests on `A+B` and generalizes to `C`.
@@ -189,6 +191,7 @@ Stage-specific behavior:
 - **Subset membership is stored per item**: each dataset item is assigned to subset `a`, `b`, or `c` when the trajectory dataset is loaded.
 - **Padding is batch-time only**: trajectories are padded to a fixed length during collation and drift plotting. Longer trajectories stop the run by design.
 - **Loss masking**: training and evaluation loss ignore padded values using `padding_value`.
+- **Trajectory loss**: the trajectory stage currently uses masked MAE (`L1`) loss rather than masked MSE.
 - **`y_prev` vs `y_real`**: per-epoch training, testing, and generalization use `y_prev` (previous generation predictions, with on-the-fly augmentation only during training), while the final post-training evaluation uses `y_real` (original targets).
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Split rotation is cyclical**: the same seeded `A/B/C` split is reused across generations, while the exposed and held-out roles rotate.

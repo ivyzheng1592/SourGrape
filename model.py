@@ -33,14 +33,12 @@ class LSTMRegressor(nn.Module):
         hidden_size: int = hp.hidden_size,
         num_layers: int = hp.num_layers,
         dropout: float = hp.dropout,
-        bidirectional: bool = hp.bidirectional,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
     ) -> None:
         super().__init__()
         self.num_layers = num_layers
         self.hidden_size = hidden_size
-        self.num_directions = 2 if bidirectional else 1
 
         # Character embeddings; padding index 0 matches PAD_TOKEN.
         if embedding_weights is None:
@@ -61,13 +59,13 @@ class LSTMRegressor(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            bidirectional=bidirectional,
+            bidirectional=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
         # Regression head predicts the full trajectory vector.
         self.out_proj = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(hidden_size * (2 if bidirectional else 1), output_size),
+            nn.Linear(hidden_size * 2, output_size),
         )
 
     def forward(
@@ -79,8 +77,8 @@ class LSTMRegressor(nn.Module):
         emb = self.embedding(x)
         # Run the LSTM across the fixed-length word.
         _, (hidden, _) = self.lstm(emb)
-        # Use the last encoder states as the word representation.
-        hidden = hidden.view(self.num_layers, self.num_directions, x.size(0), self.hidden_size)
+        # Bidirectionality doubles the final-state width.
+        hidden = hidden.view(self.num_layers, 2, x.size(0), self.hidden_size)
         last_hidden = hidden[-1].transpose(0, 1).reshape(x.size(0), -1)
         # Map to trajectory prediction.
         return self.out_proj(last_hidden)
@@ -120,7 +118,6 @@ class Seq2SeqRegressor(nn.Module):
         hidden_size: int = hp.hidden_size,
         num_layers: int = hp.num_layers,
         dropout: float = hp.dropout,
-        bidirectional: bool = hp.bidirectional,
         embedding_weights: torch.Tensor | None = None,
         freeze_embedding: bool = False,
         padding_id: int = hp.padding_id,
@@ -134,8 +131,8 @@ class Seq2SeqRegressor(nn.Module):
         self.teacher_forcing_ratio = teacher_forcing_ratio
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.num_directions = 2 if bidirectional else 1
-        self.encoder_output_size = hidden_size * self.num_directions
+        # Bidirectionality doubles the encoder output width.
+        self.encoder_output_size = hidden_size * 2
 
         # Embed the input characters.
         if embedding_weights is None:
@@ -156,7 +153,7 @@ class Seq2SeqRegressor(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            bidirectional=bidirectional,
+            bidirectional=True,
             dropout=dropout if num_layers > 1 else 0.0,
         )
         # Score the encoder outputs at each decoder step.
@@ -188,13 +185,13 @@ class Seq2SeqRegressor(nn.Module):
         # Initialize the decoder state from the last encoder states.
         encoder_hidden = encoder_hidden.view(
             self.num_layers,
-            self.num_directions,
+            2,
             x.size(0),
             self.hidden_size,
         )
         encoder_cell = encoder_cell.view(
             self.num_layers,
-            self.num_directions,
+            2,
             x.size(0),
             self.hidden_size,
         )

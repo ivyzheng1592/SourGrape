@@ -37,13 +37,23 @@ def run_phoneme_pretrain(
     phoneme_dataset.vocab.save(out_dir / "vocab.json")
 
     # Build the training and test loaders.
-    train_ds, test_ds = torch.utils.data.random_split(
-        phoneme_dataset,
-        hp.pretrain_data_split_ratio,
-        generator=torch.Generator().manual_seed(seed),
+    train_sampler = RepeatShuffleSampler(
+        dataset_size=len(phoneme_dataset),
+        repeats=hp.pretrain_repeats_per_epoch,
+        seed=seed,
     )
-    train_loader = DataLoader(train_ds, batch_size=hp.batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=hp.batch_size, shuffle=False)
+    train_loader = DataLoader(
+        phoneme_dataset,
+        batch_size=hp.batch_size,
+        sampler=train_sampler,
+        collate_fn=phoneme_dataset.get_collate_batch(augment_targets=True),
+    )
+    test_loader = DataLoader(
+        phoneme_dataset,
+        batch_size=hp.batch_size,
+        shuffle=False,
+        collate_fn=phoneme_dataset.get_collate_batch(augment_targets=False),
+    )
 
     # Model initialization.
     vocab = phoneme_dataset.vocab.char_to_id
@@ -198,7 +208,6 @@ def run_trajectory_training(
         model = Seq2SeqRegressor(
             input_size=len(trajectory_dataset.vocab.char_to_id),
             output_len=trajectory_dataset.max_trajectory_len,
-            bidirectional=hp.bidirectional,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )
@@ -206,7 +215,6 @@ def run_trajectory_training(
         model = LSTMRegressor(
             input_size=len(trajectory_dataset.vocab.char_to_id),
             output_size=trajectory_dataset.max_trajectory_len,
-            bidirectional=hp.bidirectional,
             embedding_weights=embedding_weights,
             freeze_embedding=embedding_weights is not None,
         )
@@ -218,7 +226,7 @@ def run_trajectory_training(
     def loss_fn(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         # Ignore padded trajectory positions.
         mask = targets != hp.padding_value
-        return F.mse_loss(preds[mask], targets[mask], reduction="sum")
+        return F.l1_loss(preds[mask], targets[mask], reduction="sum")
 
     # Optionally resume from a checkpoint.
     if resume_path:
@@ -317,7 +325,6 @@ def run_generations(
     phoneme_dataset = PhonemeDataset(
         condition=condition,
         data_path=hp.phoneme_data_path,
-        augment=True,
     )
     vocab = phoneme_dataset.vocab
     
