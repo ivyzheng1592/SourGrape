@@ -101,6 +101,7 @@ class SourGrapeDataset(Dataset):
     def __init__(
         self,
         vocab: Vocab,
+        pattern: str,
         condition: str,
         trajectory_data_path: str,
         trajectory_npy_root: str = hp.trajectory_npy_root,
@@ -109,7 +110,7 @@ class SourGrapeDataset(Dataset):
         max_trajectory_len: int = hp.max_trajectory_len,
     ) -> None:
         # Load the metadata for this condition.
-        df = self._load_metadata(trajectory_data_path, condition)
+        df = self._load_metadata(trajectory_data_path, pattern, condition)
         
         # Store the dataset item types.
         self.item_types = df["item_type"].tolist()
@@ -138,10 +139,10 @@ class SourGrapeDataset(Dataset):
     def __len__(self) -> int:
         return len(self.words)
 
-    def _load_metadata(self, data_path: str, condition: str) -> pd.DataFrame:
-        # Load the rows for this condition.
+    def _load_metadata(self, data_path: str, pattern: str, condition: str) -> pd.DataFrame:
+        # Load the rows for this pattern and condition.
         df = pd.read_csv(data_path)
-        return df[df["condition"] == condition]
+        return df[(df["pattern"] == pattern) & (df["condition"] == condition)]
 
     def _load_trajectories(
         self,

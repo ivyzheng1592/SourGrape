@@ -1,4 +1,5 @@
 # Global configuration shared across stages.
+patterns = ["AH", "SG"]
 conditions = ["glide", "fricative"]
 seed = 1234  # change seed for individual iteration
 device = "cuda"  # "cuda" or "cpu"
@@ -9,7 +10,7 @@ stage = "all"  # "all", "pretrain", or "train"
 
 # Data path configuration.
 phoneme_data_path = "dataset/phoneme_target_file.xlsx"
-trajectory_data_path = "dataset/meta_file.csv"
+trajectory_data_path = "dataset/meta_file_ahsg.csv"
 trajectory_npy_root = "/mnt/storage/ldl_linguistics/SourGrape/raw_token_npy"
 
 # Dataset configuration.

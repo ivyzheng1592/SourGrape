@@ -313,6 +313,7 @@ def run_trajectory_training(
 def run_generations(
     seed: int,
     iteration: int,
+    pattern: str,
     condition: str,
     num_generations: int,
     stage: str,
@@ -332,6 +333,7 @@ def run_generations(
     # Load the trajectory dataset for the training stage.
     trajectory_dataset = SourGrapeDataset(
         vocab=vocab,
+        pattern=pattern,
         condition=condition,
         trajectory_data_path=hp.trajectory_data_path,
         trajectory_npy_root=hp.trajectory_npy_root,
@@ -345,8 +347,11 @@ def run_generations(
     
     for gen in range(0, num_generations):
         generation_seed = iteration_seed + gen
-        print(f"gen={gen}, stage={stage}, seed={generation_seed}")
-        gen_out_dir = iteration_root / f"{condition}_gen_{gen}"
+        print(
+            f"gen={gen}, condition={condition}, pattern={pattern}, "
+            f"stage={stage}, seed={generation_seed}"
+        )
+        gen_out_dir = iteration_root / f"{condition}_{pattern}_gen_{gen}"
         embedding_weights = None
 
         if stage in {"all", "pretrain"}:
@@ -369,13 +374,14 @@ def run_generations(
                 out_dir=gen_out_dir,
             )
 
-    summary_dir = iteration_root / f"{condition}_summary"
+    summary_dir = iteration_root / f"{condition}_{pattern}_summary"
     summary_dir.mkdir(parents=True, exist_ok=True)
 
     if stage in {"all", "pretrain"}:
         # Save the combined pretraining history.
         save_history_csv(
             iteration=iteration,
+            pattern=pattern,
             condition=condition,
             history_by_gen=pretrain_history_by_gen,
             output_path=summary_dir / "pretrain_history.csv",
@@ -385,6 +391,7 @@ def run_generations(
         # Save the combined trajectory-training history.
         save_history_csv(
             iteration=iteration,
+            pattern=pattern,
             condition=condition,
             history_by_gen=train_history_by_gen,
             output_path=summary_dir / "history.csv",
@@ -406,6 +413,7 @@ def run_generations(
         # Save all generation predictions in one CSV file.
         save_predictions_csv(
             iteration=iteration,
+            pattern=pattern,
             condition=condition,
             targets=[target.tolist() for target in trajectory_dataset.y_real],
             preds_by_gen=preds_by_gen,
@@ -455,14 +463,16 @@ def run_iterations(
         iteration_root = run_root / f"iteration_{iteration}"
         iteration_root.mkdir(parents=True, exist_ok=True)
 
-        # Run all conditions for this iteration.
-        for condition in hp.conditions:
-            run_generations(
-                seed=iteration_seed,
-                iteration=iteration,
-                condition=condition,
-                num_generations=num_generations,
-                stage=stage,
-                device=device,
-                iteration_root=iteration_root,
-            )
+        # Run all pattern-condition cells for this iteration.
+        for pattern in hp.patterns:
+            for condition in hp.conditions:
+                run_generations(
+                    seed=iteration_seed,
+                    iteration=iteration,
+                    pattern=pattern,
+                    condition=condition,
+                    num_generations=num_generations,
+                    stage=stage,
+                    device=device,
+                    iteration_root=iteration_root,
+                )

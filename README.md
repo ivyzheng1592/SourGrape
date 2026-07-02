@@ -2,7 +2,7 @@
 
 This repo trains character-level models that map a word (e.g., a 5‑character UR string) to a fixed‑length articulatory trajectory (e.g., velum opening over time). Training runs in *generations*: each generation does phoneme pretraining to initialize embeddings, then trajectory training that uses the previous generation’s predictions as targets (`y_prev`). During each epoch, exposed-set and held-out-set evaluation are also measured against `y_prev`, while the final post-training evaluation is measured against the original trajectories (`y_real`).
 
-The command-line entry point is `main.py`, which runs both conditions (`glide`, `fricative`) for a chosen number of iterations and generations.
+The command-line entry point is `main.py`, which runs the full 2x2 design for a chosen number of iterations and generations: `condition` (`glide`, `fricative`) x `pattern` (`AH`, `SG`).
 
 ## What The Code Does
 
@@ -14,7 +14,7 @@ The command-line entry point is `main.py`, which runs both conditions (`glide`, 
    - Saves the embedding plot, loss curves, and checkpoints.
 
 2. **Trajectory training** (`LSTMRegressor` or `Seq2SeqRegressor` in `model.py`)
-   - Reads one metadata file, `meta_file.csv`.
+   - Reads one metadata file, `meta_file_ahsg.csv`.
    - Loads each `.npy` trajectory, stores raw variable-length targets, and pads batches to `max_trajectory_len` during collation.
    - Uses pretrained phoneme embeddings and freezes them by default.
    - Assigns each item to one of three seeded subsets (`A`, `B`, `C`) when the trajectory dataset is loaded.
@@ -78,18 +78,19 @@ Required columns:
 
 Note: the character vocabulary is built from the phoneme dataset for each condition, so all characters in `UR` must appear in the phoneme file for that same condition.
 
-Current training setup: the workbook is expected to contain one row per phoneme target for each condition. The pretraining stage repeats that full set with fresh Gaussian noise during training and runs one clean `test` pass with no noise each epoch.
+Current training setup: the workbook is expected to contain one row per phoneme target for each condition. The pretraining stage repeats that full set with fresh Gaussian noise during training and runs one clean `test` pass with no noise each epoch. The same phoneme inventory is reused for both `AH` and `SG` trajectory runs within a condition.
 
 ### 2) Metadata CSV
 `hyper_params.py` expects:
 
-- `dataset/meta_file.csv`
+- `dataset/meta_file_ahsg.csv`
 
 Required columns (the code reads these exact names):
 
 - `UR`: the input word string used for character encoding.
 - `file_name`: relative path to a `.npy` trajectory file (resolved under `dataset/`).
 - `condition`: label used to filter rows (e.g., `glide`, `fricative`).
+- `pattern`: label used to filter rows (e.g., `AH`, `SG`).
 - `item_type`: used to group plots.
 
 Note: the CSV in this repo also includes a `word` column; it is currently **not used** by the code.
@@ -110,7 +111,7 @@ The phoneme pretraining stage uses the full phoneme set for both training and te
 - During **pretraining**, each epoch repeats the full phoneme set `pretrain_repeats_per_epoch` times (default `500`) in mixed order using a sampler.
 - During **pretraining testing**, each epoch iterates once over the same phoneme set with no noise.
 
-The trajectory stage assigns one seeded three-way subset split for each condition.
+The trajectory stage assigns one seeded three-way subset split for each condition-pattern cell.
 
 - Generation `0` trains/tests on `A+B` and generalizes to `C`.
 - Generation `1` trains/tests on `B+C` and generalizes to `A`.
@@ -140,23 +141,31 @@ Each call to `run_iterations()` writes to:
 output/iterations_<timestamp>/
   run_config.txt
   iteration_0/
-    glide_gen_0/
+    glide_AH_gen_0/
       pretrain_models/
       pretrain_loss_curve.png
       pretrain_embedding.png
       models/
       loss_curve.png
       prediction_<item_type>.png
-    fricative_gen_0/
+    glide_SG_gen_0/
       ...
-    glide_summary/
+    fricative_AH_gen_0/
+      ...
+    fricative_SG_gen_0/
+      ...
+    glide_AH_summary/
       pretrain_history.csv
       history.csv
       prediction_drift_test_<item_type>.png
       prediction_drift_gen_<item_type>.png
       loss_drift.png
       predictions.csv
-    fricative_summary/
+    glide_SG_summary/
+      ...
+    fricative_AH_summary/
+      ...
+    fricative_SG_summary/
       pretrain_history.csv
       history.csv
       prediction_drift_test_<item_type>.png
@@ -196,5 +205,5 @@ Stage-specific behavior:
 - **Generation updates use true trajectory length**: when `y_prev` is updated after a generation, each prediction row is trimmed back to the original `y_real` length for that item.
 - **Split rotation is cyclical**: the same seeded `A/B/C` split is reused across generations, while the exposed and held-out roles rotate.
 - **Drift plots include variability**: the trajectory drift plots show mean trajectories with SD bands for the target and each generation.
-- **`history.csv` / `pretrain_history.csv` columns**: each row stores the iteration, condition, generation, epoch, subset label, and loss value. Trajectory history rows use `train`, `test`, `gen`, and `final`; pretraining history rows use `train` and `test`.
-- **`predictions.csv` columns**: each row stores the iteration, condition, generation, item index, word, item type, fixed subset label (`a`/`b`/`c`), scope label, and timestep values trimmed to the item's true trajectory length. Original targets are written with `generation = -1` and `scope = target`; model predictions use `scope = test` or `scope = gen`.
+- **`history.csv` / `pretrain_history.csv` columns**: each row stores the iteration, pattern, condition, generation, epoch, subset label, and loss value. Trajectory history rows use `train`, `test`, `gen`, and `final`; pretraining history rows use `train` and `test`.
+- **`predictions.csv` columns**: each row stores the iteration, pattern, condition, generation, item index, word, item type, fixed subset label (`a`/`b`/`c`), scope label, and timestep values trimmed to the item's true trajectory length. Original targets are written with `generation = -1` and `scope = target`; model predictions use `scope = test` or `scope = gen`.

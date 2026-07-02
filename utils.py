@@ -8,16 +8,17 @@ from sklearn.decomposition import PCA
 
 def save_history_csv(
     iteration: int,
+    pattern: str,
     condition: str,
     history_by_gen: Mapping[int, list[tuple[int, str, float]]],
     output_path: Path,
-) -> None:
+    ) -> None:
     # Save all history rows for all generations in one CSV file.
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("iteration,condition,generation,epoch,subset,loss\n")
+        f.write("iteration,pattern,condition,generation,epoch,subset,loss\n")
         for gen, rows in history_by_gen.items():
             for epoch, subset, loss in rows:
-                f.write(f"{iteration},{condition},{gen},{epoch},{subset},{loss}\n")
+                f.write(f"{iteration},{pattern},{condition},{gen},{epoch},{subset},{loss}\n")
 
 
 def save_loss_plot(history: dict, path: str) -> None:
@@ -271,6 +272,7 @@ def save_loss_drift_plot(
 
 def save_predictions_csv(
     iteration: int,
+    pattern: str,
     condition: str,
     targets: Sequence[Sequence[float]],
     preds_by_gen: Mapping[int, np.ndarray],
@@ -286,7 +288,7 @@ def save_predictions_csv(
     timestep_cols = ",".join(f"timestep_{idx}" for idx in range(max_len))
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(
-            f"iteration,condition,generation,item_index,word,item_type,subset,scope,"
+            f"iteration,pattern,condition,generation,item_index,word,item_type,subset,scope,"
             f"{timestep_cols}\n"
         )
         for idx, target in enumerate(targets):
@@ -294,7 +296,7 @@ def save_predictions_csv(
             padded_target = valid_target + [""] * (max_len - len(valid_target))
             target_values = ",".join(str(value) for value in padded_target)
             f.write(
-                f"{iteration},{condition},-1,{idx},{words[idx]},{item_types[idx]},"
+                f"{iteration},{pattern},{condition},-1,{idx},{words[idx]},{item_types[idx]},"
                 f"{subsets[idx]},target,{target_values}\n"
             )
         for gen, preds in preds_by_gen.items():
@@ -308,6 +310,6 @@ def save_predictions_csv(
                 scope_name = "test" if subsets[idx] in exposure_labels else "gen"
                 # Write one row with item metadata and timestep values.
                 f.write(
-                    f"{iteration},{condition},{gen},{idx},{words[idx]},{item_types[idx]},"
+                    f"{iteration},{pattern},{condition},{gen},{idx},{words[idx]},{item_types[idx]},"
                     f"{subsets[idx]},{scope_name},{pred_values}\n"
                 )
