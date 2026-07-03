@@ -5,13 +5,13 @@ seed = 1234  # change seed for individual iteration
 device = "cuda"  # "cuda" or "cpu"
 output_root = "output"
 generations = 5
-iterations = 5
+iterations = 10
 stage = "all"  # "all", "pretrain", or "train"
 
 # Data path configuration.
 phoneme_data_path = "dataset/phoneme_target_file.xlsx"
 trajectory_data_path = "dataset/meta_file_ahsg.csv"
-trajectory_npy_root = "/mnt/storage/ldl_linguistics/SourGrape/raw_token_npy"
+trajectory_npy_root = "/mnt/storage/ldl_linguistics/SourGrape/raw_token_ahsg_npy"
 
 # Dataset configuration.
 pretrain_repeats_per_epoch = 500
