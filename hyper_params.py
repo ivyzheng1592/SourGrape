@@ -4,7 +4,7 @@ conditions = ["glide", "fricative"]
 seed = 1234  # change seed for individual iteration
 device = "cuda"  # "cuda" or "cpu"
 output_root = "output"
-generations = 5
+generations = 10
 iterations = 10
 stage = "all"  # "all", "pretrain", or "train"
 
